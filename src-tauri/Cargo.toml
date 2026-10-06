@@ -1,0 +1,41 @@
+[package]
+name = "corral"
+version = "0.1.0"
+description = "Monitor y gestor de Ollama con telemetría de GPU sin depender del fabricante"
+authors = ["Santiago Quiroz"]
+license = "AGPL-3.0-only"
+edition = "2021"
+
+[lib]
+name = "corral_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-autostart = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "1"
+reqwest = { version = "0.13", features = ["json", "stream"] }
+tokio = { version = "1", features = ["time", "sync", "macros", "rt-multi-thread", "net"] }
+futures-util = "0.3"
+thiserror = "2"
+sysinfo = "0.39"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Dxgi", "Win32_System_Performance"] }
+
+[dev-dependencies]
+axum = "0.8"
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
