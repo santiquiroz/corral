@@ -1,0 +1,47 @@
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { vi } from "vitest";
+import SettingsTab from "./SettingsTab";
+
+const api = vi.hoisted(() => ({ getConfig: vi.fn(), saveConfig: vi.fn(() => Promise.resolve()) }));
+const autostart = vi.hoisted(() => ({ isEnabled: vi.fn(() => Promise.resolve(false)), enable: vi.fn(() => Promise.resolve()), disable: vi.fn(() => Promise.resolve()) }));
+vi.mock("../lib/api", () => api);
+vi.mock("@tauri-apps/plugin-autostart", () => autostart);
+
+const config = {
+  ollama_url: "http://127.0.0.1:11434", ollama_install_dir: "C:\\Ollama", poll_panel_secs: 2, poll_tray_secs: 10,
+  spill_floor_mb: 64, resume_timeout_secs: 30,
+  hooks: [{ name: "claude-mem", url: "http://127.0.0.1:37777/api/processing", body: "{\"isProcessing\":false}", enabled: true }],
+};
+
+beforeEach(() => { vi.clearAllMocks(); api.getConfig.mockResolvedValue(config); });
+
+test("guarda el umbral de desborde cambiado", async () => {
+  render(<SettingsTab />);
+  const floor = await screen.findByLabelText("Umbral de desborde (MB)");
+  await userEvent.clear(floor);
+  await userEvent.type(floor, "128");
+  await userEvent.click(screen.getByRole("button", { name: "Guardar" }));
+  expect(api.saveConfig).toHaveBeenCalledWith({ ...config, spill_floor_mb: 128 });
+  expect(await screen.findByText("Guardado.")).toBeInTheDocument();
+});
+
+test("desactiva un aviso", async () => {
+  render(<SettingsTab />);
+  await userEvent.click(await screen.findByLabelText("Aviso claude-mem"));
+  await userEvent.click(screen.getByRole("button", { name: "Guardar" }));
+  expect(api.saveConfig).toHaveBeenCalledWith({ ...config, hooks: [{ ...config.hooks[0], enabled: false }] });
+});
+
+test("activa el inicio con Windows", async () => {
+  render(<SettingsTab />);
+  await userEvent.click(await screen.findByLabelText("Iniciar con Windows"));
+  expect(autostart.enable).toHaveBeenCalled();
+});
+
+test("muestra el error de validación del backend", async () => {
+  api.saveConfig.mockRejectedValueOnce("las cadencias deben ser de al menos 1 segundo");
+  render(<SettingsTab />);
+  await userEvent.click(await screen.findByRole("button", { name: "Guardar" }));
+  expect(await screen.findByText("las cadencias deben ser de al menos 1 segundo")).toBeInTheDocument();
+});
