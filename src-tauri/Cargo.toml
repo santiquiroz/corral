@@ -32,6 +32,9 @@ windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Dx
 [dev-dependencies]
 axum = "0.8"
 
+[lints.rust]
+linker_messages = "allow"
+
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
 codegen-units = 1
