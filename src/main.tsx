@@ -3,8 +3,17 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import "./styles.css";
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+async function start() {
+  if (import.meta.env.VITE_E2E === "1") {
+    const { installE2eMocks } = await import("./e2e-mocks");
+    installE2eMocks();
+  }
+
+  ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
+}
+
+void start();
