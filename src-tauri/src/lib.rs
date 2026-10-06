@@ -1,3 +1,5 @@
+pub mod control;
+pub mod hooks;
 pub mod collector;
 pub mod gpu;
 pub mod config;
