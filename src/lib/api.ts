@@ -1,0 +1,17 @@
+import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { Config, InstalledModel, PullDone, PullProgress, Snapshot } from "./types";
+
+export const getSnapshot = () => invoke<Snapshot | null>("get_snapshot");
+export const onSnapshot = (cb: (s: Snapshot) => void): Promise<UnlistenFn> => listen<Snapshot>("snapshot", (e) => cb(e.payload));
+export const pauseOllama = () => invoke("pause_ollama");
+export const resumeOllama = () => invoke("resume_ollama");
+export const listModels = () => invoke<InstalledModel[]>("list_models");
+export const unloadModel = (name: string) => invoke("unload_model", { name });
+export const deleteModel = (name: string) => invoke("delete_model", { name });
+export const copyModel = (source: string, destination: string) => invoke("copy_model", { source, destination });
+export const pullModel = (name: string) => invoke("pull_model", { name });
+export const onPullProgress = (cb: (p: PullProgress) => void) => listen<PullProgress>("pull-progress", (e) => cb(e.payload));
+export const onPullDone = (cb: (d: PullDone) => void) => listen<PullDone>("pull-done", (e) => cb(e.payload));
+export const getConfig = () => invoke<Config>("get_config");
+export const saveConfig = (config: Config) => invoke("save_config", { config });
