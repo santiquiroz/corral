@@ -3,7 +3,7 @@
 use corral_lib::gpu::default_probe;
 
 #[test]
-fn reading_never_panics_and_process_luids_belong_to_known_adapters_or_igpu() {
+fn reading_never_panics_and_reported_adapters_have_vram() {
     let probe = default_probe();
     match probe.read() {
         Ok(reading) => {
