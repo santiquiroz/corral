@@ -1,3 +1,4 @@
+pub mod collector;
 pub mod gpu;
 pub mod config;
 pub mod ollama;
