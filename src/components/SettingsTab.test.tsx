@@ -45,3 +45,12 @@ test("muestra el error de validación del backend", async () => {
   await userEvent.click(await screen.findByRole("button", { name: "Guardar" }));
   expect(await screen.findByText("las cadencias deben ser de al menos 1 segundo")).toBeInTheDocument();
 });
+
+test("si el inicio con Windows falla lo dice y no marca la casilla", async () => {
+  autostart.enable.mockRejectedValueOnce("permiso denegado");
+  render(<SettingsTab />);
+  const box = await screen.findByLabelText("Iniciar con Windows");
+  await userEvent.click(box);
+  expect(await screen.findByText("permiso denegado")).toBeInTheDocument();
+  expect(box).not.toBeChecked();
+});

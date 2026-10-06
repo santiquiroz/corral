@@ -27,8 +27,12 @@ export default function SettingsTab() {
   const toggleHook = (index: number) =>
     setConfig({ ...config, hooks: config.hooks.map((h, i) => (i === index ? { ...h, enabled: !h.enabled } : h)) });
   const toggleAutostart = async () => {
-    await (autostart ? disable() : enable());
-    setAutostart(!autostart);
+    try {
+      await (autostart ? disable() : enable());
+      setAutostart(!autostart);
+    } catch (e) {
+      setMessage(String(e));
+    }
   };
   const save = () => saveConfig(config).then(() => setMessage("Guardado.")).catch((e) => setMessage(String(e)));
 
