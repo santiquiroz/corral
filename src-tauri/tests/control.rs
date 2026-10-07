@@ -66,7 +66,7 @@ fn ollama_tree() -> FakeProcs {
 struct FlagLauncher(Arc<AtomicBool>);
 
 impl Launcher for FlagLauncher {
-    fn launch(&self, _install_dir: &Path) -> Result<(), String> {
+    fn launch(&self, _install_dir: &Path, _env: &[(String, Option<String>)]) -> Result<(), String> {
         self.0.store(true, Ordering::SeqCst);
         Ok(())
     }
@@ -114,7 +114,7 @@ async fn resume_launches_waits_and_runs_hooks() {
     let hook_base = common::spawn(hook_router).await;
     let hooks = vec![Hook { name: "claude-mem".into(), url: format!("{hook_base}/api/processing"), body: r#"{"isProcessing":false}"#.into(), enabled: true }];
 
-    let report = resume(&OllamaClient::new(&base), &FlagLauncher(up), Path::new(DIR), &hooks, &reqwest::Client::new(), Duration::from_secs(5)).await.unwrap();
+    let report = resume(&OllamaClient::new(&base), &FlagLauncher(up), Path::new(DIR), &hooks, &reqwest::Client::new(), &[], Duration::from_secs(5)).await.unwrap();
 
     assert!(report.launched);
     assert_eq!(report.version, "0.35.1");
@@ -126,7 +126,7 @@ async fn resume_launches_waits_and_runs_hooks() {
 async fn resume_when_already_running_does_not_launch_again() {
     let base = ollama_that_answers_when(Arc::new(AtomicBool::new(true))).await;
     let launched = Arc::new(AtomicBool::new(false));
-    let report = resume(&OllamaClient::new(&base), &FlagLauncher(launched.clone()), Path::new(DIR), &[], &reqwest::Client::new(), Duration::from_secs(5)).await.unwrap();
+    let report = resume(&OllamaClient::new(&base), &FlagLauncher(launched.clone()), Path::new(DIR), &[], &reqwest::Client::new(), &[], Duration::from_secs(5)).await.unwrap();
     assert!(!report.launched);
     assert!(!launched.load(Ordering::SeqCst));
 }
@@ -135,10 +135,10 @@ async fn resume_when_already_running_does_not_launch_again() {
 async fn resume_times_out_when_ollama_never_answers() {
     struct NoopLauncher;
     impl Launcher for NoopLauncher {
-        fn launch(&self, _: &Path) -> Result<(), String> { Ok(()) }
+        fn launch(&self, _: &Path, _: &[(String, Option<String>)]) -> Result<(), String> { Ok(()) }
     }
     let base = ollama_that_answers_when(Arc::new(AtomicBool::new(false))).await;
-    let result = resume(&OllamaClient::new(&base), &NoopLauncher, Path::new(DIR), &[], &reqwest::Client::new(), Duration::from_secs(1)).await;
+    let result = resume(&OllamaClient::new(&base), &NoopLauncher, Path::new(DIR), &[], &reqwest::Client::new(), &[], Duration::from_secs(1)).await;
     assert_eq!(result.unwrap_err(), ControlError::Timeout(1));
 }
 
@@ -198,7 +198,7 @@ async fn resume_deadline_includes_a_slow_initial_version_probe() {
     }))).await;
     let started = std::time::Instant::now();
     let launched = Arc::new(AtomicBool::new(false));
-    let result = resume(&OllamaClient::new(&base), &FlagLauncher(launched), Path::new(DIR), &[], &reqwest::Client::new(), Duration::from_secs(1)).await;
+    let result = resume(&OllamaClient::new(&base), &FlagLauncher(launched), Path::new(DIR), &[], &reqwest::Client::new(), &[], Duration::from_secs(1)).await;
     assert_eq!(result.unwrap_err(), ControlError::Timeout(1));
     assert!(started.elapsed() < Duration::from_millis(2500));
 }
@@ -213,4 +213,77 @@ async fn readiness_deadline_cancels_a_slow_successful_probe() {
     let result = corral_lib::control::wait_ready(&OllamaClient::new(&base), Duration::from_secs(1)).await;
     assert_eq!(result.unwrap_err(), ControlError::Timeout(1));
     assert!(started.elapsed() < Duration::from_millis(2500));
+}
+
+#[test]
+fn apply_launch_env_configura_y_elimina_variables() {
+    let env = vec![
+        ("HIP_VISIBLE_DEVICES".to_string(), Some("0".to_string())),
+        ("CUDA_VISIBLE_DEVICES".to_string(), None),
+    ];
+    let mut command = std::process::Command::new("ollama");
+
+    corral_lib::control::apply_launch_env(&mut command, &env);
+
+    let configured = command
+        .get_envs()
+        .map(|(key, value)| {
+            (
+                key.to_string_lossy().into_owned(),
+                value.map(|value| value.to_string_lossy().into_owned()),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert!(configured.contains(&(
+        "HIP_VISIBLE_DEVICES".to_string(),
+        Some("0".to_string())
+    )));
+    assert!(configured.contains(&("CUDA_VISIBLE_DEVICES".to_string(), None)));
+}
+
+#[tokio::test]
+async fn resume_lanza_con_el_entorno_original() {
+    type CapturedEnv = Arc<Mutex<Vec<(String, Option<String>)>>>;
+    struct CapturingLauncher {
+        launched: Arc<AtomicBool>,
+        captured_env: CapturedEnv,
+    }
+
+    impl Launcher for CapturingLauncher {
+        fn launch(
+            &self,
+            _install_dir: &Path,
+            env: &[(String, Option<String>)],
+        ) -> Result<(), String> {
+            self.captured_env.lock().unwrap().extend_from_slice(env);
+            self.launched.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    let env = vec![
+        ("HIP_VISIBLE_DEVICES".to_string(), Some("0".to_string())),
+        ("CUDA_VISIBLE_DEVICES".to_string(), None),
+    ];
+    let launched = Arc::new(AtomicBool::new(false));
+    let captured_env = Arc::new(Mutex::new(Vec::new()));
+    let launcher = CapturingLauncher {
+        launched: launched.clone(),
+        captured_env: captured_env.clone(),
+    };
+    let base = ollama_that_answers_when(launched.clone()).await;
+    let report = resume(
+        &OllamaClient::new(&base),
+        &launcher,
+        Path::new(DIR),
+        &[],
+        &reqwest::Client::new(),
+        &env,
+        Duration::from_secs(5),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(*captured_env.lock().unwrap(), env);
+    assert!(report.launched);
 }

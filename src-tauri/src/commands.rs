@@ -1,4 +1,4 @@
-use crate::config::{self, Config};
+use crate::config::{self, Config, GpuProfile};
 use crate::control::{self, PauseReport, ResumeReport};
 use crate::ollama::{InstalledModel, OllamaClient};
 use crate::snapshot::{PausedBy, Snapshot};
@@ -63,7 +63,8 @@ async fn resume_action(state: &AppState) -> Result<ResumeReport, String> {
     let client = state.client.read().await.clone();
     let config = state.config.read().await.clone();
     let timeout = Duration::from_secs(config.resume_timeout_secs);
-    let result = control::resume(&client, state.launcher.as_ref(), &config.ollama_install_dir, &config.hooks, &state.http, timeout)
+    let env = crate::ollama_gpus::gpu_profile_env(&config.gpu_profile, config.igpu_enabled, std::env::consts::OS);
+    let result = control::resume(&client, state.launcher.as_ref(), &config.ollama_install_dir, &config.hooks, &state.http, &env, timeout)
         .await
         .map_err(|e| e.to_string());
     state.wake.notify_one();
@@ -151,12 +152,71 @@ pub async fn get_config(state: State<'_, AppState>) -> Result<Config, String> {
 
 #[tauri::command]
 pub async fn save_config(state: State<'_, AppState>, config: Config) -> Result<(), String> {
+    let _profile_action = state.gpu_profile_apply.lock().await;
     let config = config::validate(config)?;
+    let mut current = state.config.write().await;
+    config::validate_gpu_config_change(&current, &config)?;
     config::save(&state.config_path, &config)?;
     *state.client.write().await = OllamaClient::new(&config.ollama_url);
-    *state.config.write().await = config;
+    *current = config;
     state.wake.notify_one();
     Ok(())
+}
+
+#[tauri::command]
+pub async fn list_ollama_gpus() -> Result<Vec<crate::ollama_gpus::OllamaGpu>, String> {
+    tauri::async_runtime::spawn_blocking(crate::ollama_gpus::list_ollama_gpus).await.map_err(|e| e.to_string())
+}
+
+async fn save_gpu_selection(state: &AppState, profile: GpuProfile, igpu_enabled: bool) -> Result<(), String> {
+    let mut current = state.config.write().await;
+    let next = config::validate(Config { gpu_profile: profile, igpu_enabled, ..current.clone() })?;
+    config::save(&state.config_path, &next)?;
+    *current = next;
+    Ok(())
+}
+
+pub async fn apply_gpu_profile_with<P, PF, R, F>(
+    state: &AppState,
+    profile: GpuProfile,
+    igpu_enabled: bool,
+    gpus: &[crate::ollama_gpus::OllamaGpu],
+    persist: P,
+    restart: R,
+) -> Result<(), String>
+where
+    P: FnOnce(&[(String, Option<String>)]) -> PF,
+    PF: std::future::Future<Output = Result<(), String>>,
+    R: FnOnce() -> F,
+    F: std::future::Future<Output = Result<(), String>>,
+{
+    let _profile_action = state.gpu_profile_apply.lock().await;
+    crate::ollama_gpus::validate_gpu_profile(&profile, gpus)?;
+    let env = crate::ollama_gpus::gpu_profile_env(&profile, igpu_enabled, std::env::consts::OS);
+    save_gpu_selection(state, profile, igpu_enabled).await?;
+    persist(&env).await?;
+    restart().await
+}
+
+#[tauri::command]
+pub async fn apply_gpu_profile(app: AppHandle, state: State<'_, AppState>, profile: GpuProfile, igpu_enabled: bool) -> Result<(), String> {
+    let result = apply_gpu_profile_action(&app, &state, profile, igpu_enabled).await;
+    if let Err(message) = &result {
+        push_notice(&app, &state, message.clone());
+    }
+    result
+}
+
+async fn persist_gpu_env(env: Vec<(String, Option<String>)>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::user_env::persist(&env)).await.map_err(|e| e.to_string())?
+}
+
+async fn apply_gpu_profile_action(app: &AppHandle, state: &AppState, profile: GpuProfile, igpu_enabled: bool) -> Result<(), String> {
+    let gpus = list_ollama_gpus().await?;
+    apply_gpu_profile_with(state, profile, igpu_enabled, &gpus, |env| persist_gpu_env(env.to_vec()), || async {
+        do_pause(app, state).await?;
+        do_resume(app, state).await.map(|_| ())
+    }).await
 }
 
 #[cfg(test)]
@@ -167,7 +227,7 @@ mod tests {
 
     struct FailedLauncher;
     impl Launcher for FailedLauncher {
-        fn launch(&self, _: &Path) -> Result<(), String> { Err("falló el lanzamiento".into()) }
+        fn launch(&self, _: &Path, _: &[(String, Option<String>)]) -> Result<(), String> { Err("falló el lanzamiento".into()) }
     }
 
     #[tokio::test]

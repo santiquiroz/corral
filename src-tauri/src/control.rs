@@ -34,14 +34,15 @@ pub enum ControlError {
 }
 
 pub trait Launcher: Send + Sync {
-    fn launch(&self, install_dir: &Path) -> Result<(), String>;
+    fn launch(&self, install_dir: &Path, env: &[(String, Option<String>)]) -> Result<(), String>;
 }
 
 pub struct OllamaLauncher;
 
 impl Launcher for OllamaLauncher {
-    fn launch(&self, install_dir: &Path) -> Result<(), String> {
+    fn launch(&self, install_dir: &Path, env: &[(String, Option<String>)]) -> Result<(), String> {
         let mut command = launch_command(install_dir);
+        apply_launch_env(&mut command, env);
         command.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
         #[cfg(windows)]
         {
@@ -49,6 +50,19 @@ impl Launcher for OllamaLauncher {
             command.creation_flags(CREATE_NO_WINDOW);
         }
         command.spawn().map(|_| ()).map_err(|e| format!("no se pudo arrancar Ollama: {e}"))
+    }
+}
+
+pub fn apply_launch_env(command: &mut std::process::Command, env: &[(String, Option<String>)]) {
+    for (key, value) in env {
+        match value {
+            Some(value) => {
+                command.env(key, value);
+            }
+            None => {
+                command.env_remove(key);
+            }
+        }
     }
 }
 
@@ -101,19 +115,20 @@ pub async fn resume(
     install_dir: &Path,
     hooks: &[Hook],
     http: &reqwest::Client,
+    env: &[(String, Option<String>)],
     timeout: Duration,
 ) -> Result<ResumeReport, ControlError> {
-    let (launched, version) = tokio::time::timeout(timeout, resume_until_ready(client, launcher, install_dir, timeout))
+    let (launched, version) = tokio::time::timeout(timeout, resume_until_ready(client, launcher, install_dir, env, timeout))
         .await
         .map_err(|_| ControlError::Timeout(timeout.as_secs()))??;
     Ok(ResumeReport { launched, version, hooks: run_hooks(http, hooks).await })
 }
 
-async fn resume_until_ready(client: &OllamaClient, launcher: &dyn Launcher, install_dir: &Path, timeout: Duration) -> Result<(bool, String), ControlError> {
+async fn resume_until_ready(client: &OllamaClient, launcher: &dyn Launcher, install_dir: &Path, env: &[(String, Option<String>)], timeout: Duration) -> Result<(bool, String), ControlError> {
     match tokio::time::timeout(Duration::from_secs(2), client.version()).await {
         Ok(Ok(version)) => Ok((false, version)),
         _ => {
-            launcher.launch(install_dir).map_err(ControlError::Launch)?;
+            launcher.launch(install_dir, env).map_err(ControlError::Launch)?;
             Ok((true, wait_ready(client, timeout).await?))
         }
     }
