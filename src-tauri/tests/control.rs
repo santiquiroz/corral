@@ -189,3 +189,28 @@ async fn ollama_reports_redirects_without_calling_the_target() {
     assert!(matches!(result, Err(corral_lib::ollama::OllamaError::Http { status: 302, .. })));
     assert!(!called.load(Ordering::SeqCst));
 }
+
+#[tokio::test]
+async fn resume_deadline_includes_a_slow_initial_version_probe() {
+    let base = common::spawn(Router::new().route("/api/version", get(|| async {
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        Json(json!({"version": "0.35.1"}))
+    }))).await;
+    let started = std::time::Instant::now();
+    let launched = Arc::new(AtomicBool::new(false));
+    let result = resume(&OllamaClient::new(&base), &FlagLauncher(launched), Path::new(DIR), &[], &reqwest::Client::new(), Duration::from_secs(1)).await;
+    assert_eq!(result.unwrap_err(), ControlError::Timeout(1));
+    assert!(started.elapsed() < Duration::from_millis(2500));
+}
+
+#[tokio::test]
+async fn readiness_deadline_cancels_a_slow_successful_probe() {
+    let base = common::spawn(Router::new().route("/api/version", get(|| async {
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        Json(json!({"version": "0.35.1"}))
+    }))).await;
+    let started = std::time::Instant::now();
+    let result = corral_lib::control::wait_ready(&OllamaClient::new(&base), Duration::from_secs(1)).await;
+    assert_eq!(result.unwrap_err(), ControlError::Timeout(1));
+    assert!(started.elapsed() < Duration::from_millis(2500));
+}

@@ -42,6 +42,7 @@ pub struct OllamaLauncher;
 impl Launcher for OllamaLauncher {
     fn launch(&self, install_dir: &Path) -> Result<(), String> {
         let mut command = launch_command(install_dir);
+        command.stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -102,24 +103,30 @@ pub async fn resume(
     http: &reqwest::Client,
     timeout: Duration,
 ) -> Result<ResumeReport, ControlError> {
-    let (launched, version) = match client.version().await {
-        Ok(version) => (false, version),
-        Err(_) => {
-            launcher.launch(install_dir).map_err(ControlError::Launch)?;
-            (true, wait_ready(client, timeout).await?)
-        }
-    };
+    let (launched, version) = tokio::time::timeout(timeout, resume_until_ready(client, launcher, install_dir, timeout))
+        .await
+        .map_err(|_| ControlError::Timeout(timeout.as_secs()))??;
     Ok(ResumeReport { launched, version, hooks: run_hooks(http, hooks).await })
 }
 
+async fn resume_until_ready(client: &OllamaClient, launcher: &dyn Launcher, install_dir: &Path, timeout: Duration) -> Result<(bool, String), ControlError> {
+    match tokio::time::timeout(Duration::from_secs(2), client.version()).await {
+        Ok(Ok(version)) => Ok((false, version)),
+        _ => {
+            launcher.launch(install_dir).map_err(ControlError::Launch)?;
+            Ok((true, wait_ready(client, timeout).await?))
+        }
+    }
+}
+
 pub async fn wait_ready(client: &OllamaClient, timeout: Duration) -> Result<String, ControlError> {
-    let deadline = tokio::time::Instant::now() + timeout;
+    tokio::time::timeout(timeout, poll_until_ready(client)).await.map_err(|_| ControlError::Timeout(timeout.as_secs()))
+}
+
+async fn poll_until_ready(client: &OllamaClient) -> String {
     loop {
         if let Ok(version) = client.version().await {
-            return Ok(version);
-        }
-        if tokio::time::Instant::now() >= deadline {
-            return Err(ControlError::Timeout(timeout.as_secs()));
+            return version;
         }
         tokio::time::sleep(POLL_INTERVAL).await;
     }
