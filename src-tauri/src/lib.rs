@@ -17,14 +17,19 @@ fn should_keep_running(exit_code: Option<i32>) -> bool {
 
 pub fn run() {
     let config_path = config::config_path();
-    let loaded = config::load_or_create(&config_path).unwrap_or_else(|reason| {
-        eprintln!("corral: usando config por defecto: {reason}");
-        config::Config::default()
-    });
+    let (loaded, notices) = match config::load_or_create(&config_path) {
+        Ok(config) => (config, Vec::new()),
+        Err(reason) => (
+            config::Config::default(),
+            vec![format!("Config inválida en {}: {reason}. Se usan valores por defecto.", config_path.display())],
+        ),
+    };
+    let state = state::AppState::new(config_path, loaded);
+    *state.notices.lock().unwrap() = notices;
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| tray::show_panel(app)))
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--hidden"])))
-        .manage(state::AppState::new(config_path, loaded))
+        .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::get_snapshot,
             commands::take_notices,

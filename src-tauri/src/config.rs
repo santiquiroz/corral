@@ -92,7 +92,8 @@ pub fn load_or_create(path: &Path) -> Result<Config, String> {
         return Ok(config);
     }
     let text = std::fs::read_to_string(path).map_err(|e| format!("no se pudo leer {}: {e}", path.display()))?;
-    toml::from_str(&text).map_err(|e| format!("config inválida en {}: {e}", path.display()))
+    let config = toml::from_str(&text).map_err(|e| format!("config inválida en {}: {e}", path.display()))?;
+    validate(config)
 }
 
 pub fn save(path: &Path, config: &Config) -> Result<(), String> {
@@ -174,5 +175,15 @@ mod tests {
         assert!(validate(Config { resume_timeout_secs: 0, ..Config::default() }).is_err());
         let fixed = validate(Config { ollama_url: "0.0.0.0".into(), ..Config::default() }).unwrap();
         assert_eq!(fixed.ollama_url, "http://127.0.0.1:11434");
+    }
+
+    #[test]
+    fn load_rejects_a_config_file_with_zero_panel_cadence() {
+        let dir = std::env::temp_dir().join(format!("corral-invalid-cfg-{}", std::process::id()));
+        let path = dir.join("config.toml");
+        save(&path, &Config { poll_panel_secs: 0, ..Config::default() }).unwrap();
+        let result = load_or_create(&path);
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(result.unwrap_err(), "las cadencias deben ser de al menos 1 segundo");
     }
 }
