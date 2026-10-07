@@ -23,5 +23,5 @@ export interface PullDone { name: string; error: string | null }
 export interface Hook { name: string; url: string; body: string; enabled: boolean }
 export interface Config {
   ollama_url: string; ollama_install_dir: string; poll_panel_secs: number; poll_tray_secs: number;
-  spill_floor_mb: number; resume_timeout_secs: number; hooks: Hook[];
+  spill_floor_mb: number; resume_timeout_secs: number; load_keep_alive: string; hooks: Hook[];
 }

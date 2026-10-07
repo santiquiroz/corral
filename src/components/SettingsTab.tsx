@@ -46,6 +46,14 @@ export default function SettingsTab() {
           <input type="number" min={1} aria-label={f.label} value={config[f.key]} onChange={(e) => setNumber(f.key, e.target.value)} />
         </label>
       ))}
+      <h2>Memoria</h2>
+      <label className="row">Mantener modelos cargados
+        <select value={config.load_keep_alive} onChange={(e) => setConfig({ ...config, load_keep_alive: e.target.value })}>
+          <option value="30m">30 min</option>
+          <option value="1h">1 h</option>
+          <option value="-1">Siempre</option>
+        </select>
+      </label>
       <h2>Avisos al reanudar</h2>
       {config.hooks.map((h, i) => (
         <label className="row" key={h.name}>

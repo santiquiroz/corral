@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { copyModel, deleteModel, listModels, unloadModel } from "../lib/api";
+import { copyModel, deleteModel, listModels, loadModel, unloadModel } from "../lib/api";
 import type { InstalledModel, LoadedModel, Snapshot } from "../lib/types";
 import { formatMb } from "../lib/format";
 import PullForm from "./PullForm";
@@ -37,9 +37,21 @@ function ModelName({ model }: { model: InstalledModel }) {
 
 function ModelRow({ model, loaded, duplicate, onChanged, onError }: { model: InstalledModel; loaded: boolean; duplicate: boolean; onChanged: () => void; onError: (e: string) => void }) {
   const [mode, setMode] = useState<Mode>({ kind: "idle" });
+  const [loading, setLoading] = useState(false);
   const alias = isInternalAlias(model.name);
   const reason = deletionReason(model.name, duplicate, loaded);
   const act = (action: () => Promise<unknown>) => action().then(onChanged).catch((e) => onError(String(e))).finally(() => setMode({ kind: "idle" }));
+  async function load() {
+    setLoading(true);
+    try {
+      await loadModel(model.name);
+      onChanged();
+    } catch (error) {
+      onError(String(error));
+    } finally {
+      setLoading(false);
+    }
+  }
   return (
     <tr>
       <ModelName model={model} />
@@ -49,6 +61,7 @@ function ModelRow({ model, loaded, duplicate, onChanged, onError }: { model: Ins
       <td className="mono nowrap">{model.modified_at.slice(0, 10)}</td>
       <td>{loaded ? <span className="pill pill-running">En GPU</span> : null}</td>
       <td><div className="model-actions">
+        {!loaded && !alias && <button className="btn-sm" disabled={loading} onClick={load}>{loading ? "Cargando…" : "Cargar"}</button>}
         {loaded && <button className="btn-sm" onClick={() => act(() => unloadModel(model.name))}>Liberar VRAM</button>}
         {!alias && (mode.kind === "copy" ? (
           <>

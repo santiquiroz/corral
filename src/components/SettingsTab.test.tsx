@@ -10,11 +10,22 @@ vi.mock("@tauri-apps/plugin-autostart", () => autostart);
 
 const config = {
   ollama_url: "http://127.0.0.1:11434", ollama_install_dir: "C:\\Ollama", poll_panel_secs: 2, poll_tray_secs: 10,
-  spill_floor_mb: 64, resume_timeout_secs: 30,
+  spill_floor_mb: 64, resume_timeout_secs: 30, load_keep_alive: "30m",
   hooks: [{ name: "claude-mem", url: "http://127.0.0.1:37777/api/processing", body: "{\"isProcessing\":false}", enabled: true }],
 };
 
 beforeEach(() => { vi.clearAllMocks(); api.getConfig.mockResolvedValue(config); });
+
+test.each([["30m", "30 min"], ["1h", "1 h"], ["-1", "Siempre"]])("guarda la duración de carga %s desde Memoria", async (value, label) => {
+  render(<SettingsTab />);
+  const select = await screen.findByLabelText("Mantener modelos cargados");
+  expect(select).toHaveValue("30m");
+  expect(screen.getByRole("heading", { name: "Memoria" })).toBeInTheDocument();
+  expect(screen.getByRole("option", { name: label })).toHaveValue(value);
+  await userEvent.selectOptions(select, value);
+  await userEvent.click(screen.getByRole("button", { name: "Guardar" }));
+  expect(api.saveConfig).toHaveBeenCalledWith({ ...config, load_keep_alive: value });
+});
 
 test("guarda el umbral de desborde cambiado", async () => {
   render(<SettingsTab />);

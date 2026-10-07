@@ -7,6 +7,7 @@ import type { PullProgress, Snapshot } from "../lib/types";
 
 const api = vi.hoisted(() => ({
   listModels: vi.fn(),
+  loadModel: vi.fn(() => Promise.resolve()),
   unloadModel: vi.fn(() => Promise.resolve()),
   deleteModel: vi.fn(() => Promise.resolve()),
   copyModel: vi.fn(() => Promise.resolve()),
@@ -45,6 +46,37 @@ async function renderDuplicates() {
 beforeEach(() => {
   vi.clearAllMocks();
   api.listModels.mockResolvedValue(installed);
+});
+
+test("solo ofrece cargar modelos instalados fuera de GPU sin alias internos", async () => {
+  const rows = await renderDuplicates();
+  expect(within(rows[0]).queryByRole("button", { name: "Cargar" })).not.toBeInTheDocument();
+  expect(within(rows[1]).getByRole("button", { name: "Cargar" })).toBeEnabled();
+  expect(within(rows[2]).queryByRole("button", { name: "Cargar" })).not.toBeInTheDocument();
+  expect(within(rows[3]).getByRole("button", { name: "Cargar" })).toBeEnabled();
+});
+
+test("cargar envía el nombre exacto, bloquea durante la espera y refresca al terminar", async () => {
+  let finish!: () => void;
+  api.loadModel.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+  render(<ModelsTab snapshot={runningSnapshot} />);
+  const row = await screen.findByRole("row", { name: /MiniCPM5/ });
+  await userEvent.click(within(row).getByRole("button", { name: "Cargar" }));
+  expect(api.loadModel).toHaveBeenCalledWith(installed[1].name);
+  expect(within(row).getByRole("button", { name: "Cargando…" })).toBeDisabled();
+  expect(api.listModels).toHaveBeenCalledTimes(1);
+  await act(async () => finish());
+  await waitFor(() => expect(api.listModels).toHaveBeenCalledTimes(2));
+  expect(within(row).getByRole("button", { name: "Cargar" })).toBeEnabled();
+});
+
+test("si cargar falla muestra el error y permite reintentar", async () => {
+  api.loadModel.mockRejectedValueOnce("No se pudo cargar el modelo");
+  render(<ModelsTab snapshot={runningSnapshot} />);
+  const row = await screen.findByRole("row", { name: /MiniCPM5/ });
+  await userEvent.click(within(row).getByRole("button", { name: "Cargar" }));
+  expect(await screen.findByText("No se pudo cargar el modelo")).toBeInTheDocument();
+  expect(within(row).getByRole("button", { name: "Cargar" })).toBeEnabled();
 });
 
 test("lista los modelos y marca el cargado", async () => {

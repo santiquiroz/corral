@@ -9,6 +9,7 @@ export const resumeOllama = () => invoke("resume_ollama");
 export const takeNotices = () => invoke<string[]>("take_notices");
 export const onNotice = (cb: (message: string) => void): Promise<UnlistenFn> => listen<string>("notice", (e) => cb(e.payload));
 export const listModels = () => invoke<InstalledModel[]>("list_models");
+export const loadModel = (name: string) => invoke("load_model", { name });
 export const unloadModel = (name: string) => invoke("unload_model", { name });
 export const deleteModel = (name: string) => invoke("delete_model", { name });
 export const copyModel = (source: string, destination: string) => invoke("copy_model", { source, destination });

@@ -22,6 +22,17 @@ export function installE2eMocks() {
   const installedModels = new URLSearchParams(window.location.search).get("scenario") === "orphan-loaded"
     ? models.filter((model) => model.name !== "qwen3.5-mem:latest")
     : models;
+  let config = { ollama_url: "http://127.0.0.1:11434", ollama_install_dir: "C:\\Ollama", poll_panel_secs: 2, poll_tray_secs: 10, spill_floor_mb: 64, resume_timeout_secs: 30, load_keep_alive: "30m", hooks: [] };
+
+  async function loadMockModel(name: string) {
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    const model = installedModels.find((installed) => installed.name === name);
+    if (!model) throw new Error("El modelo no está instalado");
+    const loaded = current.loaded.kind === "ok" ? current.loaded.value : [];
+    current = { ...current, loaded: { kind: "ok", value: [...loaded, { name, digest: model.digest, size_mb: model.size_mb, vram_mb: model.size_mb, context_length: model.context_length, expires_at: "" }] } };
+    await emit("snapshot", current);
+    return null;
+  }
   mockIPC(
     (cmd, args) => {
       calls.push({ cmd, args });
@@ -29,12 +40,14 @@ export function installE2eMocks() {
         case "get_snapshot": return current;
         case "take_notices": return [];
         case "list_models": return installedModels;
+        case "load_model": return loadMockModel((args as { name: string }).name);
         case "pause_ollama":
           current = pausedSnapshot;
           void emit("snapshot", current);
           return { unloaded: ["qwen3.5-mem:latest"], killed: [1, 2, 3] };
         case "delete_model": return null;
-        case "get_config": return { ollama_url: "http://127.0.0.1:11434", ollama_install_dir: "C:\\Ollama", poll_panel_secs: 2, poll_tray_secs: 10, spill_floor_mb: 64, resume_timeout_secs: 30, hooks: [] };
+        case "get_config": return config;
+        case "save_config": config = (args as { config: typeof config }).config; return null;
         case "plugin:autostart|is_enabled": return false;
         default: return null;
       }

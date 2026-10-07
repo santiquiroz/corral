@@ -1,5 +1,20 @@
 import { expect, test } from "@playwright/test";
 
+test("cargar un modelo usa la duración guardada y actualiza su estado", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Ajustes" }).click();
+  await page.getByLabel("Mantener modelos cargados").selectOption("1h");
+  await page.getByRole("button", { name: "Guardar", exact: true }).click();
+  await page.getByRole("tab", { name: "Modelos" }).click();
+  const row = page.getByRole("row", { name: /MiniCPM5/ });
+  await row.getByRole("button", { name: "Cargar", exact: true }).click();
+  await expect(row.getByRole("button", { name: "Cargando…" })).toBeDisabled();
+  await expect(row.getByText("En GPU", { exact: true })).toBeVisible();
+  const calls = await page.evaluate(() => (window as unknown as { __corralCalls: { cmd: string; args: { name?: string; config?: { load_keep_alive: string } } }[] }).__corralCalls);
+  expect(calls.find((call) => call.cmd === "save_config")?.args.config?.load_keep_alive).toBe("1h");
+  expect(calls.find((call) => call.cmd === "load_model")?.args.name).toBe("hf.co/openbmb/MiniCPM5-2B-GGUF:Q4_K_M");
+});
+
 test("Modelos permite liberar un modelo cargado sin manifiesto", async ({ page }) => {
   await page.goto("/?scenario=orphan-loaded");
   await page.getByRole("tab", { name: "Modelos" }).click();
