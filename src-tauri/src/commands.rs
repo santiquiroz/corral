@@ -219,6 +219,22 @@ async fn apply_gpu_profile_action(app: &AppHandle, state: &AppState, profile: Gp
     }).await
 }
 
+async fn claude_mem_status_action(state: &AppState) -> Result<Option<crate::claude_mem::ClaudeMemStatus>, String> {
+    let path = crate::claude_mem::settings_path()?;
+    let ollama_url = state.config.read().await.ollama_url.clone();
+    let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+    crate::claude_mem::read_status(&path, &ollama_url, crate::claude_mem::WORKER_BASE, now_ms).await
+}
+
+#[tauri::command]
+pub async fn claude_mem_status(app: AppHandle, state: State<'_, AppState>) -> Result<Option<crate::claude_mem::ClaudeMemStatus>, String> {
+    let result = claude_mem_status_action(&state).await;
+    if let Err(message) = &result {
+        push_notice(&app, &state, message.clone());
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

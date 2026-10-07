@@ -1,4 +1,5 @@
 pub mod collector;
+pub mod claude_mem;
 pub mod commands;
 pub mod config;
 pub mod control;
@@ -47,6 +48,7 @@ pub fn run() {
             commands::save_config,
             commands::list_ollama_gpus,
             commands::apply_gpu_profile,
+            commands::claude_mem_status,
         ])
         .setup(|app| {
             tray::build(app.handle())?;
