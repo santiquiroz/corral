@@ -101,6 +101,22 @@ pub async fn unload_model(state: State<'_, AppState>, name: String) -> Result<()
     result
 }
 
+pub async fn load_action(state: &AppState, name: &str) -> Result<(), String> {
+    let keep_alive = state.config.read().await.load_keep_alive.clone();
+    let result = client(state).await.load(name, &keep_alive).await.map_err(|e| e.to_string());
+    state.wake.notify_one();
+    result
+}
+
+#[tauri::command]
+pub async fn load_model(app: AppHandle, state: State<'_, AppState>, name: String) -> Result<(), String> {
+    let result = load_action(&state, &name).await;
+    if let Err(message) = &result {
+        push_notice(&app, &state, message.clone());
+    }
+    result
+}
+
 #[tauri::command]
 pub async fn delete_model(state: State<'_, AppState>, name: String) -> Result<(), String> {
     client(&state).await.delete(&name).await.map_err(|e| e.to_string())

@@ -37,6 +37,7 @@ pub fn run() {
             commands::pause_ollama,
             commands::resume_ollama,
             commands::unload_model,
+            commands::load_model,
             commands::delete_model,
             commands::copy_model,
             commands::pull_model,
