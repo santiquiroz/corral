@@ -63,14 +63,24 @@ pub fn toggle_label(state: OllamaState) -> &'static str {
     }
 }
 
+pub fn unload_menu_id(name: &str) -> String {
+    format!("unload:{name}")
+}
+
+pub fn parse_unload_id(id: &str) -> Option<&str> {
+    id.strip_prefix("unload:").filter(|name| !name.is_empty())
+}
+
 fn icon_image(status: TrayStatus) -> Image<'static> {
     Image::new_owned(icon_rgba(status, ICON_SIZE), ICON_SIZE, ICON_SIZE)
 }
 
 fn build_menu(app: &AppHandle, snapshot: Option<&Snapshot>) -> tauri::Result<Menu<Wry>> {
     let menu = Menu::new(app)?;
-    for line in snapshot.map(model_lines).unwrap_or_default() {
-        menu.append(&MenuItem::new(app, line, false, None::<&str>)?)?;
+    let models = snapshot.and_then(|s| s.loaded.as_ok()).map(Vec::as_slice).unwrap_or(&[]);
+    for model in models {
+        let text = format!("Descargar de memoria: {} ({:.1} GB)", model.name, model.vram_mb as f64 / 1024.0);
+        menu.append(&MenuItem::with_id(app, unload_menu_id(&model.name), text, true, None::<&str>)?)?;
     }
     if snapshot.is_some_and(|s| !model_lines(s).is_empty()) {
         menu.append(&PredefinedMenuItem::separator(app)?)?;
@@ -108,6 +118,7 @@ pub fn update(app: &AppHandle, snapshot: &Snapshot) {
 }
 
 pub fn show_panel(app: &AppHandle) {
+    app.state::<AppState>().wake.notify_one();
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
@@ -128,6 +139,10 @@ pub fn show_panel(app: &AppHandle) {
 }
 
 fn handle_menu(app: &AppHandle, id: &str) {
+    if let Some(name) = parse_unload_id(id) {
+        unload_from_tray(app, name.to_string());
+        return;
+    }
     match id {
         "open" => show_panel(app),
         "quit" => app.exit(0),
@@ -141,6 +156,18 @@ fn handle_menu(app: &AppHandle, id: &str) {
         }
         _ => {}
     }
+}
+
+fn unload_from_tray(app: &AppHandle, name: String) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = app.state::<AppState>();
+        let client = state.client.read().await.clone();
+        if let Err(error) = client.unload(&name).await {
+            crate::commands::push_notice(&app, &state, error.to_string());
+        }
+        state.wake.notify_one();
+    });
 }
 
 #[cfg(test)]
@@ -188,5 +215,15 @@ mod tests {
         assert_eq!(toggle_label(OllamaState::Running), "Pausar Ollama");
         assert_eq!(toggle_label(OllamaState::Paused { by: PausedBy::User }), "Reanudar Ollama");
         assert_eq!(toggle_label(OllamaState::Down), "Reanudar Ollama");
+    }
+
+    #[test]
+    fn unload_menu_ids_round_trip_namespaced_model_names() {
+        let name = "hf.co/openbmb/MiniCPM5-2B-GGUF:Q4_K_M";
+        assert_eq!(unload_menu_id(name), format!("unload:{name}"));
+        assert_eq!(parse_unload_id(&unload_menu_id(name)), Some(name));
+        assert_eq!(parse_unload_id("toggle"), None);
+        assert_eq!(parse_unload_id("open"), None);
+        assert_eq!(parse_unload_id("unload:"), None);
     }
 }
