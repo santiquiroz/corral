@@ -1,8 +1,9 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 import ModelsTab from "./ModelsTab";
 import { runningSnapshot } from "../test/fixtures";
+import type { PullProgress } from "../lib/types";
 
 const api = vi.hoisted(() => ({
   listModels: vi.fn(),
@@ -10,7 +11,7 @@ const api = vi.hoisted(() => ({
   deleteModel: vi.fn(() => Promise.resolve()),
   copyModel: vi.fn(() => Promise.resolve()),
   pullModel: vi.fn(() => Promise.resolve()),
-  onPullProgress: vi.fn(() => Promise.resolve(() => {})),
+  onPullProgress: vi.fn((_cb: (progress: PullProgress) => void) => Promise.resolve(() => {})),
   onPullDone: vi.fn(() => Promise.resolve(() => {})),
 }));
 vi.mock("../lib/api", () => api);
@@ -56,6 +57,20 @@ test("descargar un modelo nuevo llama a pull con el nombre", async () => {
   await userEvent.type(screen.getByLabelText("Modelo a descargar"), "qwen3.5:4b");
   await userEvent.click(screen.getByRole("button", { name: "Descargar" }));
   expect(api.pullModel).toHaveBeenCalledWith("qwen3.5:4b");
+});
+
+test("el progreso de descarga muestra porcentaje y ancho válidos", async () => {
+  render(<ModelsTab snapshot={runningSnapshot} />);
+  await screen.findByRole("row", { name: /qwen3.5-mem:latest/ });
+  await waitFor(() => expect(api.onPullProgress).toHaveBeenCalled());
+  const onProgress = api.onPullProgress.mock.calls[0][0];
+  act(() => onProgress({ name: "x", status: "downloading", completed: 50, total: 100 }));
+  const bar = screen.getByRole("progressbar");
+  expect(bar).toHaveAttribute("aria-valuenow", "50");
+  expect(bar).toHaveAttribute("aria-valuemin", "0");
+  expect(bar).toHaveAttribute("aria-valuemax", "100");
+  expect(bar.querySelector("span")).toHaveStyle({ width: "50%" });
+  expect(screen.getByText(/downloading · 50 %/)).toBeInTheDocument();
 });
 
 test("si Ollama no responde lo dice", async () => {
