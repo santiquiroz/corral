@@ -11,7 +11,9 @@ pub mod snapshot;
 pub mod state;
 pub mod tray;
 
-use tauri::WindowEvent;
+fn should_keep_running(exit_code: Option<i32>) -> bool {
+    exit_code.is_none()
+}
 
 pub fn run() {
     let config_path = config::config_path();
@@ -43,12 +45,24 @@ pub fn run() {
             poller::spawn(app.handle().clone());
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+        .build(tauri::generate_context!())
+        .expect("error al iniciar Corral")
+        .run(|_app, event| {
+            if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
+                if should_keep_running(code) {
+                    api.prevent_exit();
+                }
             }
-        })
-        .run(tauri::generate_context!())
-        .expect("error al iniciar Corral");
+        });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn closing_the_last_window_keeps_the_tray_alive_but_quit_exits() {
+        assert!(should_keep_running(None));
+        assert!(!should_keep_running(Some(0)));
+    }
 }

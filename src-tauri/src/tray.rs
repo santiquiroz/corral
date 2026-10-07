@@ -112,6 +112,18 @@ pub fn show_panel(app: &AppHandle) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
+        return;
+    }
+    match tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
+        .title("Corral")
+        .inner_size(980.0, 680.0)
+        .min_inner_size(760.0, 520.0)
+        .build()
+    {
+        Ok(window) => {
+            let _ = window.set_focus();
+        }
+        Err(reason) => eprintln!("corral: no se pudo abrir el panel: {reason}"),
     }
 }
 
