@@ -33,6 +33,10 @@ pub fn take_notices(state: State<'_, AppState>) -> Vec<String> {
 
 pub async fn do_pause(app: &AppHandle, state: &AppState) -> Result<PauseReport, String> {
     let _lifecycle = state.lifecycle.lock().await;
+    pause_locked(app, state).await
+}
+
+async fn pause_locked(app: &AppHandle, state: &AppState) -> Result<PauseReport, String> {
     *state.paused_by.lock().unwrap() = Some(PausedBy::User);
     let client = state.client.read().await.clone();
     let install_dir = state.config.read().await.ollama_install_dir.clone();
@@ -46,6 +50,10 @@ pub async fn do_pause(app: &AppHandle, state: &AppState) -> Result<PauseReport, 
 
 pub async fn do_resume(app: &AppHandle, state: &AppState) -> Result<ResumeReport, String> {
     let _lifecycle = state.lifecycle.lock().await;
+    resume_locked(app, state).await
+}
+
+async fn resume_locked(app: &AppHandle, state: &AppState) -> Result<ResumeReport, String> {
     let result = resume_action(state).await;
     match &result {
         Err(message) => push_notice(app, state, message.clone()),
@@ -195,6 +203,7 @@ where
     let env = crate::ollama_gpus::gpu_profile_env(&profile, igpu_enabled, std::env::consts::OS);
     save_gpu_selection(state, profile, igpu_enabled).await?;
     persist(&env).await?;
+    let _lifecycle = state.lifecycle.lock().await;
     restart().await
 }
 
@@ -214,8 +223,8 @@ async fn persist_gpu_env(env: Vec<(String, Option<String>)>) -> Result<(), Strin
 async fn apply_gpu_profile_action(app: &AppHandle, state: &AppState, profile: GpuProfile, igpu_enabled: bool) -> Result<(), String> {
     let gpus = list_ollama_gpus().await?;
     apply_gpu_profile_with(state, profile, igpu_enabled, &gpus, |env| persist_gpu_env(env.to_vec()), || async {
-        do_pause(app, state).await?;
-        do_resume(app, state).await.map(|_| ())
+        pause_locked(app, state).await?;
+        resume_locked(app, state).await.map(|_| ())
     }).await
 }
 

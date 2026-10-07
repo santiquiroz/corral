@@ -4,7 +4,7 @@ use corral_lib::{
     ollama_gpus::OllamaGpu,
     state::AppState,
 };
-use std::{path::PathBuf, sync::{atomic::{AtomicU64, Ordering}, Mutex}};
+use std::{path::PathBuf, sync::{atomic::{AtomicBool, AtomicU64, Ordering}, Mutex}};
 
 static NEXT_PATH: AtomicU64 = AtomicU64::new(0);
 
@@ -29,6 +29,38 @@ fn single() -> GpuProfile { GpuProfile::Single { library: "ROCm".into(), filter_
 
 fn detected() -> Vec<OllamaGpu> {
     vec![OllamaGpu { id: "0".into(), filter_id: "0".into(), library: "ROCm".into(), description: "GPU".into(), kind: "discrete".into(), total_mb: Some(16384), dropped: false }]
+}
+
+#[tokio::test]
+async fn reinicio_gpu_impide_otra_accion_del_ciclo_de_vida_entre_pausa_y_reanudacion() {
+    let dir = TestDir::new();
+    let state = AppState::new(dir.config_path(), Config::default());
+    let gpus = detected();
+    let otra_accion_ejecutada = AtomicBool::new(false);
+    let (pausa_completada, esperar_pausa) = tokio::sync::oneshot::channel();
+    let (otra_accion_iniciada, esperar_otra_accion) = tokio::sync::oneshot::channel();
+
+    let reinicio = apply_gpu_profile_with(&state, single(), false, &gpus, |_| std::future::ready(Ok(())), || async {
+        assert!(state.lifecycle.try_lock().is_err(), "la pausa debe conservar el candado del reinicio");
+        pausa_completada.send(()).unwrap();
+        esperar_otra_accion.await.unwrap();
+        tokio::task::yield_now().await;
+        assert!(!otra_accion_ejecutada.load(Ordering::SeqCst), "otra accion no puede ejecutarse entre pausa y reanudacion");
+        assert!(state.lifecycle.try_lock().is_err(), "la reanudacion debe conservar el mismo candado");
+        Ok(())
+    });
+    let otra_accion = async {
+        esperar_pausa.await.unwrap();
+        otra_accion_iniciada.send(()).unwrap();
+        let _lifecycle = state.lifecycle.lock().await;
+        otra_accion_ejecutada.store(true, Ordering::SeqCst);
+    };
+
+    let (resultado, ()) = tokio::join!(reinicio, otra_accion);
+
+    resultado.unwrap();
+    assert!(otra_accion_ejecutada.load(Ordering::SeqCst), "otra accion debe ejecutarse despues del reinicio");
+    assert!(state.lifecycle.try_lock().is_ok(), "el reinicio debe liberar el candado al terminar");
 }
 
 #[tokio::test]
