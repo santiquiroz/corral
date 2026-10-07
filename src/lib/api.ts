@@ -6,6 +6,8 @@ export const getSnapshot = () => invoke<Snapshot | null>("get_snapshot");
 export const onSnapshot = (cb: (s: Snapshot) => void): Promise<UnlistenFn> => listen<Snapshot>("snapshot", (e) => cb(e.payload));
 export const pauseOllama = () => invoke("pause_ollama");
 export const resumeOllama = () => invoke("resume_ollama");
+export const takeNotices = () => invoke<string[]>("take_notices");
+export const onNotice = (cb: (message: string) => void): Promise<UnlistenFn> => listen<string>("notice", (e) => cb(e.payload));
 export const listModels = () => invoke<InstalledModel[]>("list_models");
 export const unloadModel = (name: string) => invoke("unload_model", { name });
 export const deleteModel = (name: string) => invoke("delete_model", { name });

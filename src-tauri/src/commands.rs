@@ -21,19 +21,41 @@ struct PullDoneEvent {
     error: Option<String>,
 }
 
-pub async fn do_pause(state: &AppState) -> Result<PauseReport, String> {
+pub fn push_notice(app: &AppHandle, state: &AppState, message: String) {
+    state.notices.lock().unwrap().push(message.clone());
+    let _ = app.emit("notice", message);
+}
+
+#[tauri::command]
+pub fn take_notices(state: State<'_, AppState>) -> Vec<String> {
+    std::mem::take(&mut *state.notices.lock().unwrap())
+}
+
+pub async fn do_pause(app: &AppHandle, state: &AppState) -> Result<PauseReport, String> {
     let _lifecycle = state.lifecycle.lock().await;
     *state.paused_by.lock().unwrap() = Some(PausedBy::User);
     let client = state.client.read().await.clone();
     let install_dir = state.config.read().await.ollama_install_dir.clone();
     let result = control::pause(&client, state.procs.as_ref(), &install_dir).await.map_err(|e| e.to_string());
+    if let Err(message) = &result {
+        push_notice(app, state, message.clone());
+    }
     state.wake.notify_one();
     result
 }
 
-pub async fn do_resume(state: &AppState) -> Result<ResumeReport, String> {
+pub async fn do_resume(app: &AppHandle, state: &AppState) -> Result<ResumeReport, String> {
     let _lifecycle = state.lifecycle.lock().await;
-    resume_action(state).await
+    let result = resume_action(state).await;
+    match &result {
+        Err(message) => push_notice(app, state, message.clone()),
+        Ok(report) => {
+            for hook in report.hooks.iter().filter(|h| !h.ok) {
+                push_notice(app, state, format!("El aviso {} falló: {}", hook.name, hook.detail));
+            }
+        }
+    }
+    result
 }
 
 async fn resume_action(state: &AppState) -> Result<ResumeReport, String> {
@@ -63,13 +85,13 @@ pub async fn list_models(state: State<'_, AppState>) -> Result<Vec<InstalledMode
 }
 
 #[tauri::command]
-pub async fn pause_ollama(state: State<'_, AppState>) -> Result<PauseReport, String> {
-    do_pause(&state).await
+pub async fn pause_ollama(app: AppHandle, state: State<'_, AppState>) -> Result<PauseReport, String> {
+    do_pause(&app, &state).await
 }
 
 #[tauri::command]
-pub async fn resume_ollama(state: State<'_, AppState>) -> Result<ResumeReport, String> {
-    do_resume(&state).await
+pub async fn resume_ollama(app: AppHandle, state: State<'_, AppState>) -> Result<ResumeReport, String> {
+    do_resume(&app, &state).await
 }
 
 #[tauri::command]
@@ -138,7 +160,8 @@ mod tests {
         let mut state = AppState::new(PathBuf::new(), config);
         state.launcher = Box::new(FailedLauncher);
         *state.paused_by.lock().unwrap() = Some(PausedBy::User);
-        assert_eq!(do_resume(&state).await.unwrap_err(), "falló el lanzamiento");
+        let _lifecycle = state.lifecycle.lock().await;
+        assert_eq!(resume_action(&state).await.unwrap_err(), "falló el lanzamiento");
         assert_eq!(*state.paused_by.lock().unwrap(), None);
     }
 }

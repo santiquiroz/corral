@@ -15,6 +15,7 @@ export function installE2eMocks() {
       calls.push({ cmd, args });
       switch (cmd) {
         case "get_snapshot": return current;
+        case "take_notices": return [];
         case "list_models": return models;
         case "pause_ollama":
           current = pausedSnapshot;

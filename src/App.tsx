@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import ModelsTab from "./components/ModelsTab";
 import SettingsTab from "./components/SettingsTab";
 import StatusPill from "./components/StatusPill";
 import StatusTab from "./components/StatusTab";
 import { useSnapshot } from "./hooks/useSnapshot";
-import { pauseOllama, resumeOllama } from "./lib/api";
+import { onNotice, pauseOllama, resumeOllama, takeNotices } from "./lib/api";
 
 type Tab = "estado" | "modelos" | "ajustes";
 const TABS: { id: Tab; label: string }[] = [
@@ -17,16 +17,30 @@ export default function App() {
   const snapshot = useSnapshot();
   const [tab, setTab] = useState<Tab>("estado");
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notices, setNotices] = useState<string[]>([]);
+  const addNotice = useCallback((message: string) => {
+    setNotices((current) => current.includes(message) ? current : [...current, message]);
+  }, []);
   const running = snapshot?.state.kind === "running";
+
+  useEffect(() => {
+    let active = true;
+    const stop = onNotice((message) => { if (active) addNotice(message); });
+    stop.then(() => takeNotices()).then((pending) => {
+      if (active) pending.forEach(addNotice);
+    }).catch((error) => { if (active) addNotice(String(error)); });
+    return () => {
+      active = false;
+      stop.then((unlisten) => unlisten()).catch(() => {});
+    };
+  }, [addNotice]);
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
-    setNotice(null);
     try {
       await action();
     } catch (error) {
-      setNotice(String(error));
+      addNotice(String(error));
     } finally {
       setBusy(false);
     }
@@ -41,7 +55,10 @@ export default function App() {
           {running ? "Pausar Ollama" : "Reanudar Ollama"}
         </button>
       </header>
-      {notice && <p className="notice" role="status">{notice}</p>}
+      {notices.length > 0 && <div className="notice" role="status">
+        {notices.map((message) => <p key={message}>{message}</p>)}
+        <button onClick={() => setNotices([])}>Cerrar</button>
+      </div>}
       <nav className="tabs" role="tablist">
         {TABS.map((t) => (
           <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>{t.label}</button>

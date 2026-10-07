@@ -27,6 +27,7 @@ pub fn run() {
         .manage(state::AppState::new(config_path, loaded))
         .invoke_handler(tauri::generate_handler![
             commands::get_snapshot,
+            commands::take_notices,
             commands::list_models,
             commands::pause_ollama,
             commands::resume_ollama,

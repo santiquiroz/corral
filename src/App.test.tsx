@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 import App from "./App";
@@ -7,6 +7,8 @@ import { pausedSnapshot, runningSnapshot } from "./test/fixtures";
 const api = vi.hoisted(() => ({
   pauseOllama: vi.fn(() => Promise.resolve()),
   resumeOllama: vi.fn(() => Promise.resolve()),
+  takeNotices: vi.fn(() => Promise.resolve([] as string[])),
+  onNotice: vi.fn((_cb: (message: string) => void) => Promise.resolve(() => {})),
 }));
 const current = vi.hoisted(() => ({ snapshot: null as unknown }));
 
@@ -14,6 +16,26 @@ vi.mock("./lib/api", () => api);
 vi.mock("./hooks/useSnapshot", () => ({ useSnapshot: () => current.snapshot }));
 vi.mock("./components/ModelsTab", () => ({ default: () => <p>modelos</p> }));
 vi.mock("./components/SettingsTab", () => ({ default: () => <p>ajustes</p> }));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  api.takeNotices.mockResolvedValue([]);
+});
+
+test("muestra los avisos pendientes al abrir el panel y permite cerrarlos", async () => {
+  api.takeNotices.mockResolvedValueOnce(["Config inválida: cadencia cero"]);
+  render(<App />);
+  expect(await screen.findByText("Config inválida: cadencia cero")).toBeInTheDocument();
+  await userEvent.click(screen.getByRole("button", { name: "Cerrar" }));
+  expect(screen.queryByText("Config inválida: cadencia cero")).not.toBeInTheDocument();
+});
+
+test("muestra los avisos recibidos por evento", async () => {
+  render(<App />);
+  await waitFor(() => expect(api.onNotice).toHaveBeenCalled());
+  act(() => api.onNotice.mock.calls[0][0]("El aviso claude-mem falló: HTTP 500"));
+  expect(screen.getByText("El aviso claude-mem falló: HTTP 500")).toBeInTheDocument();
+});
 
 test("muestra el nombre del producto", () => {
   render(<App />);

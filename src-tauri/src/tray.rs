@@ -136,7 +136,7 @@ fn handle_menu(app: &AppHandle, id: &str) {
             tauri::async_runtime::spawn(async move {
                 let state = app.state::<AppState>();
                 let running = state.latest_state() == Some(OllamaState::Running);
-                let _ = if running { crate::commands::do_pause(&state).await.map(|_| ()) } else { crate::commands::do_resume(&state).await.map(|_| ()) };
+                let _ = if running { crate::commands::do_pause(&app, &state).await.map(|_| ()) } else { crate::commands::do_resume(&app, &state).await.map(|_| ()) };
             });
         }
         _ => {}
