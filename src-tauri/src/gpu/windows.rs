@@ -92,6 +92,7 @@ unsafe fn collect_counter(query: PDH_HQUERY, path: &str) -> Result<Vec<(String, 
     let slice = std::slice::from_raw_parts(items, count as usize);
     Ok(slice
         .iter()
+        .filter(|item| pdh_names::is_valid_sample(item.FmtValue.CStatus))
         .map(|item| {
             (
                 item.szName.to_string().unwrap_or_default(),

@@ -3,6 +3,10 @@ use std::collections::HashMap;
 
 const MIB: u64 = 1024 * 1024;
 
+pub fn is_valid_sample(cstatus: u32) -> bool {
+    matches!(cstatus, 0 | 1)
+}
+
 pub fn parse_adapter_instance(instance: &str) -> Option<u64> {
     parse_luid_parts(instance.strip_prefix("luid_")?)
 }
@@ -83,6 +87,15 @@ mod tests {
     use super::*;
 
     const MIB: i64 = 1024 * 1024;
+
+    #[test]
+    fn samples_require_valid_or_new_data_status() {
+        assert!(is_valid_sample(0));
+        assert!(is_valid_sample(1));
+        assert!(!is_valid_sample(2));
+        assert!(!is_valid_sample(0x8000_07d5));
+        assert!(!is_valid_sample(u32::MAX));
+    }
 
     #[test]
     fn parses_adapter_and_process_instances() {
