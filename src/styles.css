@@ -61,6 +61,7 @@ table { width: 100%; border-collapse: collapse; background: var(--panel); border
 .model-name { display: block; overflow-wrap: anywhere; }
 .model-digest { display: block; font-size: 12px; margin-top: 2px; }
 .alias-tag { display: inline-block; font-size: 11px; color: var(--muted); }
+.warning-tag { display: inline-block; font-size: 11px; color: var(--warn); }
 th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); }
 th { font-size: 12px; color: var(--muted); font-weight: 600; }
 tr.is-spilling td { background: color-mix(in srgb, var(--warn) 10%, transparent); }

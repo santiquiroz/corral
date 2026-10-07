@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { copyModel, deleteModel, listModels, unloadModel } from "../lib/api";
-import type { InstalledModel, Snapshot } from "../lib/types";
+import type { InstalledModel, LoadedModel, Snapshot } from "../lib/types";
 import { formatMb } from "../lib/format";
 import PullForm from "./PullForm";
 
@@ -10,7 +10,8 @@ function isInternalAlias(name: string) {
   return /^llamacpp:[0-9a-f]{64}$/.test(name);
 }
 
-function deletionReason(name: string, duplicate: boolean) {
+function deletionReason(name: string, duplicate: boolean, loaded: boolean) {
+  if (loaded) return "Está cargado en la GPU: libéralo antes de borrarlo";
   if (isInternalAlias(name)) return "Alias interno de Ollama";
   if (duplicate) return "Nombre duplicado en Ollama: revísalo con `ollama list` antes de borrar";
   return undefined;
@@ -37,7 +38,7 @@ function ModelName({ model }: { model: InstalledModel }) {
 function ModelRow({ model, loaded, duplicate, onChanged, onError }: { model: InstalledModel; loaded: boolean; duplicate: boolean; onChanged: () => void; onError: (e: string) => void }) {
   const [mode, setMode] = useState<Mode>({ kind: "idle" });
   const alias = isInternalAlias(model.name);
-  const reason = deletionReason(model.name, duplicate);
+  const reason = deletionReason(model.name, duplicate, loaded);
   const act = (action: () => Promise<unknown>) => action().then(onChanged).catch((e) => onError(String(e))).finally(() => setMode({ kind: "idle" }));
   return (
     <tr>
@@ -67,6 +68,41 @@ function ModelRow({ model, loaded, duplicate, onChanged, onError }: { model: Ins
   );
 }
 
+function orphanModels(models: InstalledModel[], loaded: LoadedModel[]) {
+  const installedDigests = new Set(models.filter((model) => !isInternalAlias(model.name)).map((model) => model.digest));
+  return loaded.filter((model) => !installedDigests.has(model.digest));
+}
+
+function OrphanRow({ model, onChanged, onError }: { model: LoadedModel; onChanged: () => void; onError: (error: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  async function unload() {
+    setBusy(true);
+    try {
+      await unloadModel(model.name);
+      onChanged();
+    } catch (error) {
+      onError(String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <tr>
+      <td className="model-cell">
+        <span className="model-name">{model.name}</span>
+        <span className="model-digest muted mono">{model.digest.slice(0, 12)}</span>
+        <span className="warning-tag" title="Ollama lo tiene cargado pero ya no está instalado; libéralo y vuelve a crearlo o descargarlo">sin manifiesto</span>
+      </td>
+      <td className="mono nowrap">{formatMb(model.size_mb)}</td>
+      <td>—</td>
+      <td className="mono nowrap">{model.context_length ? `${Math.round(model.context_length / 1024)}k` : "—"}</td>
+      <td>—</td>
+      <td><span className="pill pill-running">En GPU</span></td>
+      <td><button className="btn-sm" disabled={busy} onClick={unload}>Liberar VRAM</button></td>
+    </tr>
+  );
+}
+
 export default function ModelsTab({ snapshot }: { snapshot: Snapshot | null }) {
   const [models, setModels] = useState<InstalledModel[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +111,9 @@ export default function ModelsTab({ snapshot }: { snapshot: Snapshot | null }) {
   }, []);
   useEffect(refresh, [refresh]);
 
-  const loadedDigests = new Set(snapshot?.loaded.kind === "ok" ? snapshot.loaded.value.map((m) => m.digest) : []);
+  const loadedModels = snapshot?.loaded.kind === "ok" ? snapshot.loaded.value : [];
+  const loadedDigests = new Set(loadedModels.map((model) => model.digest));
+  const orphans = orphanModels(models ?? [], loadedModels);
   const nameCounts = countModelNames(models ?? []);
   return (
     <div className="tab">
@@ -88,6 +126,7 @@ export default function ModelsTab({ snapshot }: { snapshot: Snapshot | null }) {
             <tr><th>Modelo</th><th>Tamaño</th><th>Parámetros</th><th>Contexto</th><th>Modificado</th><th>Estado</th><th>Acciones</th></tr>
           </thead>
           <tbody>
+            {orphans.map((model) => <OrphanRow key={`orphan:${model.name}@${model.digest}`} model={model} onChanged={refresh} onError={setError} />)}
             {models.map((m) => <ModelRow key={`${m.name}@${m.digest}`} model={m} loaded={!isInternalAlias(m.name) && loadedDigests.has(m.digest)} duplicate={(nameCounts.get(m.name) ?? 0) > 1} onChanged={refresh} onError={setError} />)}
           </tbody>
         </table></div>

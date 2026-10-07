@@ -124,13 +124,70 @@ test("impide borrar nombres duplicados y alias internos sin ocultar las copias n
   const duplicateReason = "Nombre duplicado en Ollama: revísalo con `ollama list` antes de borrar";
   for (const row of rows.slice(0, 2)) {
     expect(within(row).getByRole("button", { name: "Borrar" })).toBeDisabled();
-    expect(within(row).getByRole("button", { name: "Borrar" })).toHaveAttribute("title", duplicateReason);
+    expect(within(row).getByRole("button", { name: "Borrar" })).toHaveAttribute("title", row === rows[0] ? "Está cargado en la GPU: libéralo antes de borrarlo" : duplicateReason);
     expect(within(row).getByRole("button", { name: "Copiar" })).toBeEnabled();
   }
   expect(within(rows[2]).getByRole("button", { name: "Borrar" })).toBeDisabled();
   expect(within(rows[2]).getByRole("button", { name: "Borrar" })).toHaveAttribute("title", "Alias interno de Ollama");
   expect(within(rows[2]).queryByRole("button", { name: "Copiar" })).not.toBeInTheDocument();
   expect(within(rows[3]).getByRole("button", { name: "Borrar" })).toBeEnabled();
+});
+
+test("impide borrar un modelo cargado hasta liberar la GPU", async () => {
+  render(<ModelsTab snapshot={runningSnapshot} />);
+  const row = await screen.findByRole("row", { name: /qwen3.5-mem:latest/ });
+  const button = within(row).getByRole("button", { name: "Borrar" });
+  expect(button).toBeDisabled();
+  expect(button).toHaveAttribute("title", "Está cargado en la GPU: libéralo antes de borrarlo");
+  await userEvent.click(button);
+  expect(api.deleteModel).not.toHaveBeenCalled();
+});
+
+test("bloquea la confirmación si el modelo se carga después de pedir el borrado", async () => {
+  const unloaded: Snapshot = { ...runningSnapshot, loaded: { kind: "ok", value: [] } };
+  const view = render(<ModelsTab snapshot={unloaded} />);
+  const row = await screen.findByRole("row", { name: /qwen3.5-mem:latest/ });
+  await userEvent.click(within(row).getByRole("button", { name: "Borrar" }));
+  view.rerender(<ModelsTab snapshot={runningSnapshot} />);
+  const confirm = within(row).getByRole("button", { name: "Confirmar borrado" });
+  expect(confirm).toBeDisabled();
+  expect(confirm).toHaveAttribute("title", "Está cargado en la GPU: libéralo antes de borrarlo");
+  await userEvent.click(confirm);
+  expect(api.deleteModel).not.toHaveBeenCalled();
+});
+
+test("deshabilita liberar el huérfano mientras espera y muestra el error", async () => {
+  let fail!: (reason: string) => void;
+  api.listModels.mockResolvedValue([installed[1]]);
+  api.unloadModel.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { fail = reject; }));
+  render(<ModelsTab snapshot={duplicateSnapshot} />);
+  const row = await screen.findByRole("row", { name: /qwen3.5-mem:latest/ });
+  const button = within(row).getByRole("button", { name: "Liberar VRAM" });
+  await userEvent.click(button);
+  expect(button).toBeDisabled();
+  await act(async () => fail("No se pudo liberar el huérfano"));
+  expect(await screen.findByText("No se pudo liberar el huérfano")).toBeInTheDocument();
+  expect(button).toBeEnabled();
+});
+
+test.each([false, true])("muestra el huérfano al inicio aunque tenga alias interno: %s", async (withAlias) => {
+  const alias = { ...installed[0], name: aliasName, digest: loadedDigest };
+  api.listModels.mockResolvedValue(withAlias ? [installed[1], alias] : [installed[1]]);
+  render(<ModelsTab snapshot={duplicateSnapshot} />);
+  const row = await screen.findByRole("row", { name: /qwen3.5-mem:latest/ });
+  expect(screen.getAllByRole("row")[1]).toBe(row);
+  expect(within(row).getByText(loadedDigest.slice(0, 12))).toBeInTheDocument();
+  expect(within(row).getByText("6.1 GB")).toBeInTheDocument();
+  expect(within(row).getByText("sin manifiesto")).toHaveAttribute("title", "Ollama lo tiene cargado pero ya no está instalado; libéralo y vuelve a crearlo o descargarlo");
+  expect(within(row).getByText("En GPU")).toBeInTheDocument();
+  expect(within(row).queryByRole("button", { name: "Copiar" })).not.toBeInTheDocument();
+  expect(within(row).queryByRole("button", { name: "Borrar" })).not.toBeInTheDocument();
+  if (withAlias) {
+    const aliasRow = screen.getByRole("row", { name: /alias interno/ });
+    expect(within(aliasRow).queryByText("En GPU")).not.toBeInTheDocument();
+  }
+  await userEvent.click(within(row).getByRole("button", { name: "Liberar VRAM" }));
+  expect(api.unloadModel).toHaveBeenCalledWith("qwen3.5-mem:latest");
 });
 
 test("abrevia el alias interno y conserva su nombre completo accesible", async () => {
