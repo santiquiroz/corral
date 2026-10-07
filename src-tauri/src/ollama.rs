@@ -93,6 +93,8 @@ struct TagDetails {
 struct ShowResponse {
     #[serde(default)]
     modelfile: String,
+    #[serde(default)]
+    parameters: String,
 }
 
 #[derive(Deserialize)]
@@ -140,6 +142,12 @@ impl OllamaClient {
         let keep_alive = if keep_alive == "-1" { json!(-1) } else { json!(keep_alive) };
         let request = self.http.post(self.url("/api/generate")).json(&json!({ "model": model, "keep_alive": keep_alive }));
         self.send(request.timeout(LOAD_TIMEOUT)).await.map(|_| ())
+    }
+
+    pub async fn num_ctx(&self, model: &str) -> Result<Option<u64>, OllamaError> {
+        let request = self.http.post(self.url("/api/show")).json(&json!({ "model": model })).timeout(READ_TIMEOUT);
+        let show = decode::<ShowResponse>(self.send(request).await?).await?;
+        Ok(parse_num_ctx(&show.parameters))
     }
 
     pub async fn unload(&self, model: &str) -> Result<(), OllamaError> {
@@ -234,6 +242,17 @@ pub fn parse_from_blob(modelfile: &str) -> Option<String> {
         .find_map(|line| line.strip_prefix("FROM "))
         .map(|path| path.trim().to_string())
         .filter(|path| path.contains("sha256-"))
+}
+
+pub fn parse_num_ctx(parameters: &str) -> Option<u64> {
+    parameters.lines().find_map(|line| {
+        let mut fields = line.split_whitespace();
+        if fields.next()? != "num_ctx" {
+            return None;
+        }
+        let value = fields.next()?.parse().ok()?;
+        fields.next().is_none().then_some(value)
+    })
 }
 
 pub fn parse_pull_line(line: &str) -> Result<Option<PullProgress>, OllamaError> {

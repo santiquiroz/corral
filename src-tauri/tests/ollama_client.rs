@@ -7,6 +7,38 @@ use std::sync::{Arc, Mutex};
 
 type Seen = Arc<Mutex<Vec<Value>>>;
 
+#[test]
+fn num_ctx_se_extrae_solo_de_la_linea_exacta_con_valor_entero() {
+    use corral_lib::ollama::parse_num_ctx;
+    assert_eq!(parse_num_ctx("temperature 0.5\nnum_ctx                        32768\nnum_predict 100"), Some(32768));
+    assert_eq!(parse_num_ctx("  num_ctx\t16384  \n"), Some(16384));
+    for text in ["", "num_ctx inválido", "num_ctx -1", "num_ctx 1.5", "other_num_ctx 32768", "PARAMETER num_ctx 32768", "num_ctx 32768 extra"] {
+        assert_eq!(parse_num_ctx(text), None, "{text}");
+    }
+}
+
+#[tokio::test]
+async fn num_ctx_consulta_show_con_nombre_y_usa_parameters_no_modelfile() {
+    let seen: Seen = Arc::default();
+    let router = Router::new().route("/api/show", post(|State(seen): State<Seen>, Json(body): Json<Value>| async move {
+        seen.lock().unwrap().push(body);
+        Json(json!({"parameters":"num_ctx                        32768", "modelfile":"PARAMETER num_ctx 8192", "model_info":{"context_length":4096}}))
+    })).with_state(seen.clone());
+    let client = OllamaClient::new(&common::spawn(router).await);
+    assert_eq!(client.num_ctx("memory:latest").await.unwrap(), Some(32768));
+    assert_eq!(*seen.lock().unwrap(), vec![json!({"model":"memory:latest"})]);
+}
+
+#[tokio::test]
+async fn num_ctx_ausente_es_none_y_error_http_se_propaga() {
+    let router = Router::new().route("/api/show", post(|| async { Json(json!({"modelfile":"PARAMETER num_ctx 32768"})) }));
+    let client = OllamaClient::new(&common::spawn(router).await);
+    assert_eq!(client.num_ctx("memory").await.unwrap(), None);
+    let router = Router::new().route("/api/show", post(|| async { (StatusCode::NOT_FOUND, "not found") }));
+    let client = OllamaClient::new(&common::spawn(router).await);
+    assert!(matches!(client.num_ctx("missing").await, Err(OllamaError::Http { status:404, .. })));
+}
+
 async fn record(State(seen): State<Seen>, Json(body): Json<Value>) -> StatusCode {
     seen.lock().unwrap().push(body);
     StatusCode::OK
