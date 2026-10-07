@@ -2,6 +2,7 @@ import type { Snapshot } from "../lib/types";
 import GpuBars from "./GpuBars";
 import RunnersTable from "./RunnersTable";
 import SpillAlert from "./SpillAlert";
+import ClaudeMemCard from "./ClaudeMemCard";
 
 export default function StatusTab({ snapshot, onPause, onUnload, busy = false }: { snapshot: Snapshot; onPause: () => void; onUnload: (model: string) => void; busy?: boolean }) {
   const runners = snapshot.runners.kind === "ok" ? snapshot.runners.value : [];
@@ -14,6 +15,7 @@ export default function StatusTab({ snapshot, onPause, onUnload, busy = false }:
       <div className="table-scroll">
         <RunnersTable runners={runners} adapters={adapters} onUnload={onUnload} busy={busy} />
       </div>
+      <ClaudeMemCard />
     </div>
   );
 }

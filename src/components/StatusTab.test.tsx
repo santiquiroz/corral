@@ -1,6 +1,9 @@
 import { render, screen, within } from "@testing-library/react";
 import StatusTab from "./StatusTab";
 import { pausedSnapshot, runningSnapshot, spillingSnapshot } from "../test/fixtures";
+import { vi } from "vitest";
+
+vi.mock("../lib/api", () => ({ claudeMemStatus: vi.fn(() => new Promise(() => {})) }));
 
 test("muestra la GPU con la parte de Ollama, otros y libre", () => {
   render(<StatusTab snapshot={runningSnapshot} onPause={() => {}} onUnload={() => {}} />);

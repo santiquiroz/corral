@@ -25,6 +25,10 @@ export type GpuProfile = { kind: "auto" } | { kind: "spread" } | { kind: "single
 export interface OllamaGpu {
   id: string; filter_id: string; library: string; description: string; kind: string; total_mb: number | null; dropped: boolean;
 }
+export interface Check { id: string; level: "ok" | "warn" | "fail"; message: string }
+export interface ClaudeMemStatus {
+  provider: string; base_url: string; model: string; queue_depth: number | null; checks: Check[];
+}
 export interface Config {
   ollama_url: string; ollama_install_dir: string; poll_panel_secs: number; poll_tray_secs: number;
   spill_floor_mb: number; resume_timeout_secs: number; load_keep_alive: string; hooks: Hook[];

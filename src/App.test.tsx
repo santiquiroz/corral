@@ -8,6 +8,7 @@ import type { Runner } from "./lib/types";
 const runner = runningSnapshot.runners.kind === "ok" ? runningSnapshot.runners.value[0] : {} as Runner;
 
 const api = vi.hoisted(() => ({
+  claudeMemStatus: vi.fn(() => Promise.resolve(null)),
   pauseOllama: vi.fn(() => Promise.resolve()),
   resumeOllama: vi.fn(() => Promise.resolve()),
   unloadModel: vi.fn((_name: string) => Promise.resolve()),

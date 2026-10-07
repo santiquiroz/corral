@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { Config, GpuProfile, InstalledModel, OllamaGpu, PullDone, PullProgress, Snapshot } from "./types";
+import type { ClaudeMemStatus, Config, GpuProfile, InstalledModel, OllamaGpu, PullDone, PullProgress, Snapshot } from "./types";
 
 export const getSnapshot = () => invoke<Snapshot | null>("get_snapshot");
 export const onSnapshot = (cb: (s: Snapshot) => void): Promise<UnlistenFn> => listen<Snapshot>("snapshot", (e) => cb(e.payload));
@@ -20,3 +20,4 @@ export const getConfig = () => invoke<Config>("get_config");
 export const saveConfig = (config: Config) => invoke("save_config", { config });
 export const listOllamaGpus = () => invoke<OllamaGpu[]>("list_ollama_gpus");
 export const applyGpuProfile = (profile: GpuProfile, igpuEnabled: boolean) => invoke("apply_gpu_profile", { profile, igpuEnabled });
+export const claudeMemStatus = () => invoke<ClaudeMemStatus | null>("claude_mem_status");

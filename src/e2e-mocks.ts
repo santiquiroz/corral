@@ -39,6 +39,13 @@ export function installE2eMocks() {
       switch (cmd) {
         case "get_snapshot": return current;
         case "take_notices": return [];
+        case "claude_mem_status": return new URLSearchParams(window.location.search).get("scenario") === "claude-mem-missing" ? {
+          provider: "openrouter", base_url: "http://127.0.0.1:11434/v1", model: "qwen3.5-mem:latest", queue_depth: 4,
+          checks: [
+            { id: "worker", level: "ok", message: "El worker responde" },
+            { id: "model_installed", level: "fail", message: "El modelo qwen3.5-mem:latest no está instalado: claude-mem fallará cuando se descargue de memoria" },
+          ],
+        } : null;
         case "list_models": return installedModels;
         case "load_model": return loadMockModel((args as { name: string }).name);
         case "pause_ollama":

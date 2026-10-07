@@ -1,5 +1,19 @@
 import { expect, test } from "@playwright/test";
 
+test("Estado detecta un modelo de claude-mem ausente con icono y texto", async ({ page }) => {
+  await page.goto("/?scenario=claude-mem-missing");
+  const card = page.getByRole("region", { name: "claude-mem" });
+  await expect(card.getByText("openrouter", { exact: true })).toBeVisible();
+  await expect(card.getByText("Cola: 4", { exact: true })).toBeVisible();
+  await expect(card.getByText("✓ El worker responde", { exact: true })).toBeVisible();
+  await expect(card.getByText("✕ El modelo qwen3.5-mem:latest no está instalado: claude-mem fallará cuando se descargue de memoria", { exact: true })).toBeVisible();
+  const colors = await card.evaluate((element) => ({ border: getComputedStyle(element).borderColor, error: getComputedStyle(element).getPropertyValue("--bad").trim() }));
+  expect(colors.border).not.toBe("");
+  expect(await card.evaluate((element) => (element as HTMLElement).style.borderColor)).toBe("var(--bad)");
+  await page.getByRole("tab", { name: "Modelos" }).click();
+  await expect(card).toHaveCount(0);
+});
+
 test("aplicar una GPU requiere confirmar el reinicio y guarda la selección", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("tab", { name: "Ajustes" }).click();

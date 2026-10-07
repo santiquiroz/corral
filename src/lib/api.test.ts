@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import { applyGpuProfile, listOllamaGpus, loadModel } from "./api";
+import { applyGpuProfile, claudeMemStatus, listOllamaGpus, loadModel } from "./api";
 
 const invoke = vi.hoisted(() => vi.fn(() => Promise.resolve()));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
@@ -12,6 +12,11 @@ test("cargar invoca el comando con el nombre exacto", async () => {
 test("consulta las GPUs detectadas por Ollama", async () => {
   await listOllamaGpus();
   expect(invoke).toHaveBeenCalledWith("list_ollama_gpus");
+});
+
+test("consulta el estado de claude-mem", async () => {
+  await claudeMemStatus();
+  expect(invoke).toHaveBeenCalledWith("claude_mem_status");
 });
 
 test("aplica el perfil GPU con argumentos del comando", async () => {
