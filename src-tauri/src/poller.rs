@@ -59,7 +59,15 @@ mod tests {
     async fn tick_waits_for_the_lifecycle_action_to_finish() {
         let state = AppState::new(std::path::PathBuf::new(), crate::config::Config::default());
         let guard = state.lifecycle.lock().await;
-        assert!(tokio::time::timeout(Duration::from_millis(50), tick(&state)).await.is_err());
+        {
+            let pending_tick = tick(&state);
+            tokio::pin!(pending_tick);
+            tokio::select! {
+                _ = &mut pending_tick => panic!("tick no debe avanzar mientras una acción mantiene el bloqueo"),
+                _ = tokio::time::sleep(Duration::from_millis(50)) => {}
+            }
+            assert!(state.blob_cache.try_lock().is_ok(), "tick no debe comenzar la recolección antes de adquirir lifecycle");
+        }
         drop(guard);
         assert!(state.lifecycle.try_lock().is_ok());
     }

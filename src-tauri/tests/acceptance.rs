@@ -30,5 +30,6 @@ async fn pause_frees_vram_under_five_seconds_and_resume_wakes_claude_mem() {
 
     let report = resume(&client, &OllamaLauncher, &install_dir, &[claude_mem_hook()], &reqwest::Client::new(), Duration::from_secs(30)).await.unwrap();
     assert!(report.launched);
+    assert_eq!(report.hooks.len(), 1, "debe recibirse exactamente el resultado del aviso claude-mem");
     assert!(report.hooks[0].ok, "claude-mem no recibió el aviso: {}", report.hooks[0].detail);
 }
