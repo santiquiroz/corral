@@ -1,6 +1,15 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum GpuProfile {
+    #[default]
+    Auto,
+    Spread,
+    Single { library: String, filter_id: String },
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Hook {
     pub name: String,
@@ -19,6 +28,8 @@ pub struct Config {
     pub spill_floor_mb: u64,
     pub resume_timeout_secs: u64,
     pub load_keep_alive: String,
+    pub gpu_profile: GpuProfile,
+    pub igpu_enabled: bool,
     pub hooks: Vec<Hook>,
 }
 
@@ -32,6 +43,8 @@ impl Default for Config {
             spill_floor_mb: 64,
             resume_timeout_secs: 30,
             load_keep_alive: "30m".into(),
+            gpu_profile: GpuProfile::Auto,
+            igpu_enabled: false,
             hooks: vec![claude_mem_hook()],
         }
     }
@@ -107,6 +120,9 @@ pub fn save(path: &Path, config: &Config) -> Result<(), String> {
 }
 
 pub fn validate(config: Config) -> Result<Config, String> {
+    if let GpuProfile::Single { library, filter_id } = &config.gpu_profile {
+        crate::ollama_gpus::validate_single_profile(library, filter_id)?;
+    }
     if !matches!(config.load_keep_alive.as_str(), "30m" | "1h" | "-1") {
         return Err("load_keep_alive debe ser 30m, 1h o -1".into());
     }
@@ -117,6 +133,13 @@ pub fn validate(config: Config) -> Result<Config, String> {
         return Err("el tope de reanudación debe ser de al menos 1 segundo".into());
     }
     Ok(Config { ollama_url: normalize_ollama_host(Some(&config.ollama_url)), ..config })
+}
+
+pub fn validate_gpu_config_change(current: &Config, next: &Config) -> Result<(), String> {
+    if current.gpu_profile != next.gpu_profile || current.igpu_enabled != next.igpu_enabled {
+        return Err("El perfil GPU requiere Aplicar y reiniciar Ollama".into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

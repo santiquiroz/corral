@@ -5,6 +5,8 @@ pub mod control;
 pub mod gpu;
 pub mod hooks;
 pub mod ollama;
+pub mod ollama_gpus;
+pub mod user_env;
 pub mod poller;
 pub mod procs;
 pub mod snapshot;
@@ -43,6 +45,8 @@ pub fn run() {
             commands::pull_model,
             commands::get_config,
             commands::save_config,
+            commands::list_ollama_gpus,
+            commands::apply_gpu_profile,
         ])
         .setup(|app| {
             tray::build(app.handle())?;
