@@ -18,6 +18,7 @@ pub struct Config {
     pub poll_tray_secs: u64,
     pub spill_floor_mb: u64,
     pub resume_timeout_secs: u64,
+    pub load_keep_alive: String,
     pub hooks: Vec<Hook>,
 }
 
@@ -30,6 +31,7 @@ impl Default for Config {
             poll_tray_secs: 10,
             spill_floor_mb: 64,
             resume_timeout_secs: 30,
+            load_keep_alive: "30m".into(),
             hooks: vec![claude_mem_hook()],
         }
     }
@@ -105,6 +107,9 @@ pub fn save(path: &Path, config: &Config) -> Result<(), String> {
 }
 
 pub fn validate(config: Config) -> Result<Config, String> {
+    if !matches!(config.load_keep_alive.as_str(), "30m" | "1h" | "-1") {
+        return Err("load_keep_alive debe ser 30m, 1h o -1".into());
+    }
     if config.poll_panel_secs == 0 || config.poll_tray_secs == 0 {
         return Err("las cadencias deben ser de al menos 1 segundo".into());
     }
@@ -185,5 +190,34 @@ mod tests {
         let result = load_or_create(&path);
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(result.unwrap_err(), "las cadencias deben ser de al menos 1 segundo");
+    }
+
+    #[test]
+    fn valor_predeterminado_de_load_keep_alive_es_30m() {
+        assert_eq!(Config::default().load_keep_alive, "30m");
+    }
+
+    #[test]
+    fn configuracion_legacy_sin_load_keep_alive_usa_30m() {
+        let partial: Config = toml::from_str("spill_floor_mb = 10").unwrap();
+        assert_eq!(partial.load_keep_alive, "30m");
+    }
+
+    #[test]
+    fn validate_acepta_valores_validos_de_load_keep_alive() {
+        for value in ["30m", "1h", "-1"] {
+            assert!(
+                validate(Config { load_keep_alive: value.into(), ..Config::default() }).is_ok(),
+                "valor {value:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_rechaza_valores_invalidos_de_load_keep_alive() {
+        for value in ["", "0", "15m", "arbitrario"] {
+            let error = validate(Config { load_keep_alive: value.into(), ..Config::default() }).unwrap_err();
+            assert!(error.contains("load_keep_alive"), "valor {value:?}: {error}");
+        }
     }
 }
