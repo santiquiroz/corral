@@ -118,3 +118,21 @@ async fn installed_aliases_are_cached_and_refreshed_for_a_new_loaded_digest() {
     assert_eq!(state.lock().unwrap().tags_calls, 2);
     assert_eq!(state.lock().unwrap().show_calls.last().unwrap(), "llamacpp:new-digest");
 }
+
+#[tokio::test]
+async fn missing_alias_digest_refreshes_are_throttled_but_new_missing_digests_refresh_immediately() {
+    let state = state();
+    state.lock().unwrap().wrong_alias_digest = true;
+    let client = fake_client(state.clone()).await;
+    let mut cache = BlobCache::default();
+
+    assert_eq!(runner_name(&client, &mut cache).await, None);
+    assert_eq!(runner_name(&client, &mut cache).await, None);
+    assert_eq!(state.lock().unwrap().tags_calls, 1);
+
+    state.lock().unwrap().digest = "new-orphan".into();
+    assert_eq!(runner_name(&client, &mut cache).await, None);
+    assert_eq!(state.lock().unwrap().tags_calls, 2);
+    assert_eq!(runner_name(&client, &mut cache).await, None);
+    assert_eq!(state.lock().unwrap().tags_calls, 2);
+}

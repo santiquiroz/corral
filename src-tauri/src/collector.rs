@@ -2,8 +2,11 @@ use crate::gpu::{pdh_names::sanitize_mb, GpuProbe, GpuReading};
 use crate::ollama::{InstalledModel, OllamaClient};
 use crate::procs::{blob_hash, classify, model_arg, OllamaRole, ProcInfo, ProcessSource};
 use crate::snapshot::{is_spilling, ollama_state, tray_status, Adapter, Field, LoadedModel, PausedBy, Runner, RunnerGpu, Snapshot};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+const INSTALLED_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 
 pub struct CollectInputs {
     pub now_ms: u64,
@@ -106,6 +109,8 @@ fn is_visible_adapter(reading: &GpuReading, luid: u64) -> bool {
 pub struct BlobCache {
     hashes: HashMap<String, (String, String)>,
     installed_by_digest: Option<HashMap<String, Vec<InstalledModel>>>,
+    last_installed_refresh: Option<Instant>,
+    digests_at_last_refresh: HashSet<String>,
 }
 
 pub async fn resolve_hashes(client: &OllamaClient, loaded: &[LoadedModel], cache: &mut BlobCache) -> HashMap<String, String> {
@@ -137,6 +142,8 @@ async fn refresh_installed_models(client: &OllamaClient, loaded: &[LoadedModel],
     if !needs_installed_refresh(loaded, cache) {
         return;
     }
+    cache.last_installed_refresh = Some(Instant::now());
+    cache.digests_at_last_refresh = loaded.iter().map(|model| model.digest.clone()).collect();
     let Ok(models) = client.installed().await else { return };
     let mut installed_by_digest: HashMap<String, Vec<InstalledModel>> = HashMap::new();
     for model in models {
@@ -146,8 +153,30 @@ async fn refresh_installed_models(client: &OllamaClient, loaded: &[LoadedModel],
 }
 
 fn needs_installed_refresh(loaded: &[LoadedModel], cache: &BlobCache) -> bool {
-    let Some(installed) = &cache.installed_by_digest else { return true };
-    loaded.iter().any(|model| !installed.contains_key(&model.digest))
+    let missing_digests: Vec<&str> = loaded.iter()
+        .filter(|model| !cache.installed_by_digest.as_ref().is_some_and(|installed| installed.contains_key(&model.digest)))
+        .map(|model| model.digest.as_str())
+        .collect();
+    let new_missing = missing_digests.iter().any(|digest| !cache.digests_at_last_refresh.contains(*digest));
+    should_refresh_installed(
+        !missing_digests.is_empty(),
+        new_missing,
+        cache.last_installed_refresh.map(|last| last.elapsed()),
+    )
+}
+
+fn should_refresh_installed(
+    missing_digests_present: bool,
+    new_missing_since_last_refresh: bool,
+    elapsed_since_refresh: Option<Duration>,
+) -> bool {
+    if !missing_digests_present {
+        return false;
+    }
+    if new_missing_since_last_refresh {
+        return true;
+    }
+    elapsed_since_refresh.is_none_or(|elapsed| elapsed >= INSTALLED_REFRESH_INTERVAL)
 }
 
 async fn fetch_blob_hash(client: &OllamaClient, name: &str) -> Option<String> {
@@ -353,5 +382,55 @@ mod tests {
         gpu.adapters.push(AdapterInfo { luid: 160223, name: "AMD Radeon RX 7800 XT".into(), total_mb: 16177 });
         let snap = assemble(&CollectInputs { gpu: Ok(gpu), ..inputs() });
         assert_eq!(snap.adapters.as_ok().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn installed_refresh_is_not_needed_without_missing_digests() {
+        assert!(!should_refresh_installed(
+            false,
+            false,
+            Some(std::time::Duration::from_secs(5))
+        ));
+    }
+
+    #[test]
+    fn installed_refresh_is_needed_for_a_new_missing_digest() {
+        assert!(should_refresh_installed(
+            true,
+            true,
+            Some(std::time::Duration::from_secs(5))
+        ));
+    }
+
+    #[test]
+    fn installed_refresh_is_throttled_for_the_same_missing_digest_before_sixty_seconds() {
+        assert!(!should_refresh_installed(
+            true,
+            false,
+            Some(std::time::Duration::from_secs(5))
+        ));
+    }
+
+    #[test]
+    fn installed_refresh_is_needed_for_the_same_missing_digest_after_sixty_seconds() {
+        assert!(should_refresh_installed(
+            true,
+            false,
+            Some(std::time::Duration::from_secs(61))
+        ));
+    }
+
+    #[test]
+    fn installed_refresh_is_needed_when_it_has_never_refreshed() {
+        assert!(should_refresh_installed(true, false, None));
+    }
+
+    #[test]
+    fn installed_refresh_is_needed_at_exactly_sixty_seconds() {
+        assert!(should_refresh_installed(
+            true,
+            false,
+            Some(std::time::Duration::from_secs(60))
+        ));
     }
 }
