@@ -1,5 +1,5 @@
 use crate::gpu::{pdh_names::sanitize_mb, GpuProbe, GpuReading};
-use crate::ollama::OllamaClient;
+use crate::ollama::{InstalledModel, OllamaClient};
 use crate::procs::{blob_hash, classify, model_arg, OllamaRole, ProcInfo, ProcessSource};
 use crate::snapshot::{is_spilling, ollama_state, tray_status, Adapter, Field, LoadedModel, PausedBy, Runner, RunnerGpu, Snapshot};
 use std::collections::HashMap;
@@ -103,9 +103,13 @@ fn is_visible_adapter(reading: &GpuReading, luid: u64) -> bool {
 }
 
 #[derive(Default)]
-pub struct BlobCache(HashMap<String, (String, String)>);
+pub struct BlobCache {
+    hashes: HashMap<String, (String, String)>,
+    installed_by_digest: Option<HashMap<String, Vec<InstalledModel>>>,
+}
 
 pub async fn resolve_hashes(client: &OllamaClient, loaded: &[LoadedModel], cache: &mut BlobCache) -> HashMap<String, String> {
+    refresh_installed_models(client, loaded, cache).await;
     let mut hashes = HashMap::new();
     for model in loaded {
         if let Some(hash) = cached_or_fetched_hash(client, model, cache).await {
@@ -116,14 +120,51 @@ pub async fn resolve_hashes(client: &OllamaClient, loaded: &[LoadedModel], cache
 }
 
 async fn cached_or_fetched_hash(client: &OllamaClient, model: &LoadedModel, cache: &mut BlobCache) -> Option<String> {
-    if let Some((digest, hash)) = cache.0.get(&model.name) {
+    if let Some((digest, hash)) = cache.hashes.get(&model.name) {
         if *digest == model.digest {
             return Some(hash.clone());
         }
     }
-    let hash = client.blob_path(&model.name).await.ok().flatten().as_deref().and_then(blob_hash)?;
-    cache.0.insert(model.name.clone(), (model.digest.clone(), hash.clone()));
+    let hash = match fetch_blob_hash(client, &model.name).await {
+        Some(hash) => hash,
+        None => fetch_alias_hash(client, model, cache).await?,
+    };
+    cache.hashes.insert(model.name.clone(), (model.digest.clone(), hash.clone()));
     Some(hash)
+}
+
+async fn refresh_installed_models(client: &OllamaClient, loaded: &[LoadedModel], cache: &mut BlobCache) {
+    if !needs_installed_refresh(loaded, cache) {
+        return;
+    }
+    let Ok(models) = client.installed().await else { return };
+    let mut installed_by_digest: HashMap<String, Vec<InstalledModel>> = HashMap::new();
+    for model in models {
+        installed_by_digest.entry(model.digest.clone()).or_default().push(model);
+    }
+    cache.installed_by_digest = Some(installed_by_digest);
+}
+
+fn needs_installed_refresh(loaded: &[LoadedModel], cache: &BlobCache) -> bool {
+    let Some(installed) = &cache.installed_by_digest else { return true };
+    loaded.iter().any(|model| !installed.contains_key(&model.digest))
+}
+
+async fn fetch_blob_hash(client: &OllamaClient, name: &str) -> Option<String> {
+    client.blob_path(name).await.ok().flatten().as_deref().and_then(blob_hash)
+}
+
+async fn fetch_alias_hash(client: &OllamaClient, loaded: &LoadedModel, cache: &BlobCache) -> Option<String> {
+    if loaded.digest.is_empty() {
+        return None;
+    }
+    let aliases = cache.installed_by_digest.as_ref()?.get(&loaded.digest)?;
+    for alias in aliases.iter().filter(|alias| alias.name != loaded.name) {
+        if let Some(hash) = fetch_blob_hash(client, &alias.name).await {
+            return Some(hash);
+        }
+    }
+    None
 }
 
 #[allow(clippy::too_many_arguments)]
