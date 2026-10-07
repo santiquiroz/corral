@@ -4,8 +4,9 @@ export type OllamaState = { kind: "running" } | { kind: "paused"; by: PausedBy }
 export type TrayStatus = "running" | "spilling" | "paused" | "down";
 
 export interface Adapter { luid: number; name: string; total_mb: number; used_mb: number | null; ollama_mb: number }
+export interface RunnerGpu { luid: number; dedicated_mb: number | null; shared_mb: number | null }
 export interface Runner {
-  pid: number; model: string | null; luid: number | null; dedicated_mb: number | null;
+  pid: number; model: string | null; gpus: RunnerGpu[]; dedicated_mb: number | null;
   shared_mb: number | null; cpu_pct: number; ram_mb: number; spilling: boolean;
 }
 export interface LoadedModel { name: string; digest: string; size_mb: number; vram_mb: number; context_length: number; expires_at: string }

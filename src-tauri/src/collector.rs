@@ -1,7 +1,7 @@
-use crate::gpu::{pdh_names::sanitize_mb, GpuProbe, GpuReading, ProcessGpuMem};
+use crate::gpu::{pdh_names::sanitize_mb, GpuProbe, GpuReading};
 use crate::ollama::OllamaClient;
 use crate::procs::{blob_hash, classify, model_arg, OllamaRole, ProcInfo, ProcessSource};
-use crate::snapshot::{is_spilling, ollama_state, tray_status, Adapter, Field, LoadedModel, PausedBy, Runner, Snapshot};
+use crate::snapshot::{is_spilling, ollama_state, tray_status, Adapter, Field, LoadedModel, PausedBy, Runner, RunnerGpu, Snapshot};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -42,22 +42,31 @@ fn build_runners(inputs: &CollectInputs) -> Vec<Runner> {
 }
 
 fn build_runner(process: &ProcInfo, inputs: &CollectInputs) -> Runner {
-    let memory = inputs.gpu.as_ref().ok().and_then(|g| primary_gpu_memory(g, process.pid));
-    let shared_mb = memory.and_then(|m| m.shared_mb);
+    let gpus = runner_gpus(&inputs.gpu, process.pid);
+    let dedicated_mb = sum_known(gpus.iter().map(|g| g.dedicated_mb));
+    let shared_mb = sum_known(gpus.iter().map(|g| g.shared_mb));
+    let spilling = gpus.iter().any(|g| is_spilling(g.shared_mb, inputs.spill_floor_mb));
     Runner {
         pid: process.pid,
         model: model_arg(&process.cmd).and_then(blob_hash).and_then(|h| models_for_hash(&h, &inputs.model_hashes)),
-        luid: memory.map(|m| m.luid),
-        dedicated_mb: memory.and_then(|m| m.dedicated_mb),
+        gpus,
+        dedicated_mb,
         shared_mb,
         cpu_pct: process.cpu_pct,
         ram_mb: process.ram_mb,
-        spilling: is_spilling(shared_mb, inputs.spill_floor_mb),
+        spilling,
     }
 }
 
-fn primary_gpu_memory(reading: &GpuReading, pid: u32) -> Option<&ProcessGpuMem> {
-    reading.processes.iter().filter(|m| m.pid == pid).max_by_key(|m| m.dedicated_mb.unwrap_or(0))
+fn runner_gpus(gpu: &Result<GpuReading, String>, pid: u32) -> Vec<RunnerGpu> {
+    let Ok(reading) = gpu else { return Vec::new() };
+    reading.processes.iter().filter(|m| m.pid == pid).map(|m| RunnerGpu {
+        luid: m.luid, dedicated_mb: m.dedicated_mb, shared_mb: m.shared_mb,
+    }).collect()
+}
+
+fn sum_known(values: impl Iterator<Item = Option<u64>>) -> Option<u64> {
+    values.flatten().fold(None, |sum, value| Some(sum.unwrap_or(0) + value))
 }
 
 fn models_for_hash(hash: &str, model_hashes: &HashMap<String, String>) -> Option<String> {
@@ -82,7 +91,7 @@ fn build_adapters(runners: &Field<Vec<Runner>>, gpu: &Result<GpuReading, String>
                 name: a.name.clone(),
                 total_mb: a.total_mb,
                 used_mb: reading.adapter_used_mb.get(&a.luid).and_then(|used| sanitize_mb(*used, a.total_mb)),
-                ollama_mb: runners.iter().filter(|r| r.luid == Some(a.luid)).filter_map(|r| r.dedicated_mb).sum(),
+                ollama_mb: runners.iter().flat_map(|r| &r.gpus).filter(|g| g.luid == a.luid).filter_map(|g| g.dedicated_mb).sum(),
             })
             .collect(),
     )
@@ -200,9 +209,46 @@ mod tests {
         assert_eq!(snap.status, TrayStatus::Running);
         let runner = &snap.runners.as_ok().unwrap()[0];
         assert_eq!(runner.model.as_deref(), Some("qwen3.5-mem:latest"));
-        assert_eq!((runner.luid, runner.dedicated_mb, runner.spilling), (Some(RX), Some(7819), false));
+        assert_eq!(runner.gpus, vec![RunnerGpu { luid: RX, dedicated_mb: Some(7819), shared_mb: Some(0) }]);
+        assert_eq!((runner.dedicated_mb, runner.spilling), (Some(7819), false));
         let adapter = &snap.adapters.as_ok().unwrap()[0];
         assert_eq!((adapter.used_mb, adapter.ollama_mb), (Some(14691), 7819));
+    }
+
+    fn two_gpu_inputs(secondary_shared: u64) -> CollectInputs {
+        let mut data = inputs();
+        let gpu = data.gpu.as_mut().unwrap();
+        gpu.adapters.push(AdapterInfo { luid: 2, name: "GPU secundaria".into(), total_mb: 8192 });
+        gpu.adapter_used_mb.insert(2, 2000);
+        gpu.processes.push(ProcessGpuMem { pid: 7, luid: 2, dedicated_mb: Some(1000), shared_mb: Some(secondary_shared) });
+        data
+    }
+
+    #[test]
+    fn runner_memory_is_attributed_to_both_adapters() {
+        let snap = assemble(&two_gpu_inputs(0));
+        let adapters = snap.adapters.as_ok().unwrap();
+        assert_eq!(adapters.iter().map(|a| a.ollama_mb).collect::<Vec<_>>(), vec![7819, 1000]);
+        assert_eq!(snap.runners.as_ok().unwrap()[0].dedicated_mb, Some(8819));
+    }
+
+    #[test]
+    fn spill_on_the_secondary_adapter_marks_the_runner() {
+        let snap = assemble(&two_gpu_inputs(729));
+        let runner = &snap.runners.as_ok().unwrap()[0];
+        assert!(runner.spilling);
+        assert_eq!(runner.shared_mb, Some(729));
+        assert_eq!(snap.status, TrayStatus::Spilling);
+    }
+
+    #[test]
+    fn small_shared_samples_are_not_combined_to_trigger_spill() {
+        let mut data = two_gpu_inputs(40);
+        data.gpu.as_mut().unwrap().processes[0].shared_mb = Some(40);
+        let snap = assemble(&data);
+        let runner = &snap.runners.as_ok().unwrap()[0];
+        assert_eq!(runner.shared_mb, Some(80));
+        assert!(!runner.spilling);
     }
 
     #[test]
@@ -224,7 +270,8 @@ mod tests {
         let snap = assemble(&CollectInputs { gpu: Err("PDH falló".into()), ..inputs() });
         assert_eq!(snap.adapters, Field::Unavailable("PDH falló".into()));
         let runner = &snap.runners.as_ok().unwrap()[0];
-        assert_eq!((runner.luid, runner.dedicated_mb), (None, None));
+        assert!(runner.gpus.is_empty());
+        assert_eq!((runner.dedicated_mb, runner.shared_mb), (None, None));
     }
 
     #[test]

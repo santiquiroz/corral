@@ -57,10 +57,17 @@ pub struct Adapter {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RunnerGpu {
+    pub luid: u64,
+    pub dedicated_mb: Option<u64>,
+    pub shared_mb: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Runner {
     pub pid: u32,
     pub model: Option<String>,
-    pub luid: Option<u64>,
+    pub gpus: Vec<RunnerGpu>,
     pub dedicated_mb: Option<u64>,
     pub shared_mb: Option<u64>,
     pub cpu_pct: f32,
@@ -120,7 +127,7 @@ mod tests {
     use serde_json::json;
 
     fn runner(spilling: bool) -> Runner {
-        Runner { pid: 1, model: None, luid: None, dedicated_mb: Some(100), shared_mb: None, cpu_pct: 0.0, ram_mb: 10, spilling }
+        Runner { pid: 1, model: None, gpus: vec![], dedicated_mb: Some(100), shared_mb: None, cpu_pct: 0.0, ram_mb: 10, spilling }
     }
 
     #[test]
