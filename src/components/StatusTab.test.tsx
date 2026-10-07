@@ -17,6 +17,11 @@ test("avisa del desborde con el modelo y la memoria compartida", () => {
   expect(screen.getByRole("alert")).toHaveTextContent("qwen3.5-mem:latest está desbordando 729 MB");
 });
 
+test("deshabilita la pausa del aviso mientras hay una acción en curso", () => {
+  render(<StatusTab snapshot={spillingSnapshot} onPause={() => {}} busy />);
+  expect(screen.getByRole("button", { name: "Pausar Ollama" })).toBeDisabled();
+});
+
 test("muestra el runner con su modelo y GPU", () => {
   render(<StatusTab snapshot={runningSnapshot} onPause={() => {}} />);
   const row = screen.getByRole("row", { name: /qwen3.5-mem:latest/ });

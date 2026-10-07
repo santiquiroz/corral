@@ -22,6 +22,7 @@ struct PullDoneEvent {
 }
 
 pub async fn do_pause(state: &AppState) -> Result<PauseReport, String> {
+    let _lifecycle = state.lifecycle.lock().await;
     *state.paused_by.lock().unwrap() = Some(PausedBy::User);
     let client = state.client.read().await.clone();
     let install_dir = state.config.read().await.ollama_install_dir.clone();
@@ -31,15 +32,18 @@ pub async fn do_pause(state: &AppState) -> Result<PauseReport, String> {
 }
 
 pub async fn do_resume(state: &AppState) -> Result<ResumeReport, String> {
+    let _lifecycle = state.lifecycle.lock().await;
+    resume_action(state).await
+}
+
+async fn resume_action(state: &AppState) -> Result<ResumeReport, String> {
+    *state.paused_by.lock().unwrap() = None;
     let client = state.client.read().await.clone();
     let config = state.config.read().await.clone();
     let timeout = Duration::from_secs(config.resume_timeout_secs);
     let result = control::resume(&client, state.launcher.as_ref(), &config.ollama_install_dir, &config.hooks, &state.http, timeout)
         .await
         .map_err(|e| e.to_string());
-    if result.is_ok() {
-        *state.paused_by.lock().unwrap() = None;
-    }
     state.wake.notify_one();
     result
 }
@@ -115,4 +119,26 @@ pub async fn save_config(state: State<'_, AppState>, config: Config) -> Result<(
     *state.config.write().await = config;
     state.wake.notify_one();
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::control::Launcher;
+    use std::path::{Path, PathBuf};
+
+    struct FailedLauncher;
+    impl Launcher for FailedLauncher {
+        fn launch(&self, _: &Path) -> Result<(), String> { Err("falló el lanzamiento".into()) }
+    }
+
+    #[tokio::test]
+    async fn failed_resume_clears_the_user_pause_marker() {
+        let config = Config { ollama_url: "http://127.0.0.1:1".into(), ..Config::default() };
+        let mut state = AppState::new(PathBuf::new(), config);
+        state.launcher = Box::new(FailedLauncher);
+        *state.paused_by.lock().unwrap() = Some(PausedBy::User);
+        assert_eq!(do_resume(&state).await.unwrap_err(), "falló el lanzamiento");
+        assert_eq!(*state.paused_by.lock().unwrap(), None);
+    }
 }

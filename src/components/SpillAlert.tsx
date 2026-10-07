@@ -1,7 +1,7 @@
 import type { Runner } from "../lib/types";
 import { formatMb } from "../lib/format";
 
-export default function SpillAlert({ runners, onPause }: { runners: Runner[]; onPause: () => void }) {
+export default function SpillAlert({ runners, onPause, busy }: { runners: Runner[]; onPause: () => void; busy: boolean }) {
   const spilling = runners.filter((r) => r.spilling);
   if (spilling.length === 0) return null;
   return (
@@ -12,7 +12,7 @@ export default function SpillAlert({ runners, onPause }: { runners: Runner[]; on
           La generación puede ir de 5 a 15 veces más lenta y el escritorio puede trabarse.
         </p>
       ))}
-      <button onClick={onPause}>Pausar Ollama</button>
+      <button disabled={busy} onClick={onPause}>Pausar Ollama</button>
     </div>
   );
 }

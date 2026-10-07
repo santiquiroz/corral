@@ -48,7 +48,7 @@ export default function App() {
         ))}
       </nav>
       <main>
-        {tab === "estado" && (snapshot ? <StatusTab snapshot={snapshot} onPause={() => run(pauseOllama)} /> : <p className="muted">Esperando la primera lectura…</p>)}
+        {tab === "estado" && (snapshot ? <StatusTab snapshot={snapshot} onPause={() => run(pauseOllama)} busy={busy} /> : <p className="muted">Esperando la primera lectura…</p>)}
         {tab === "modelos" && <ModelsTab snapshot={snapshot} />}
         {tab === "ajustes" && <SettingsTab />}
       </main>

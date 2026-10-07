@@ -27,6 +27,7 @@ pub fn spawn(app: AppHandle) {
 }
 
 async fn tick(state: &AppState) -> Snapshot {
+    let _lifecycle = state.lifecycle.lock().await;
     let client = state.client.read().await.clone();
     let config = state.config.read().await.clone();
     let paused_by = *state.paused_by.lock().unwrap();
@@ -53,6 +54,15 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn tick_waits_for_the_lifecycle_action_to_finish() {
+        let state = AppState::new(std::path::PathBuf::new(), crate::config::Config::default());
+        let guard = state.lifecycle.lock().await;
+        assert!(tokio::time::timeout(Duration::from_millis(50), tick(&state)).await.is_err());
+        drop(guard);
+        assert!(state.lifecycle.try_lock().is_ok());
+    }
 
     #[test]
     fn pause_mark_clears_once_ollama_answers_again() {
