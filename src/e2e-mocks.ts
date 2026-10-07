@@ -19,13 +19,16 @@ export function installE2eMocks() {
     { name: `llamacpp:${loadedDigest}`, digest: loadedDigest, size_mb: 6289, family: "qwen35", parameter_size: "9.7B", quantization: "Q4_K_M", context_length: 262144, modified_at: "2026-09-30" },
     { name: "hf.co/openbmb/MiniCPM5-2B-GGUF:Q4_K_M", digest: "e680", size_mb: 1526, family: "minicpm", parameter_size: "2.5B", quantization: "Q4_K_M", context_length: 131072, modified_at: "2026-10-05" },
   ];
+  const installedModels = new URLSearchParams(window.location.search).get("scenario") === "orphan-loaded"
+    ? models.filter((model) => model.name !== "qwen3.5-mem:latest")
+    : models;
   mockIPC(
     (cmd, args) => {
       calls.push({ cmd, args });
       switch (cmd) {
         case "get_snapshot": return current;
         case "take_notices": return [];
-        case "list_models": return models;
+        case "list_models": return installedModels;
         case "pause_ollama":
           current = pausedSnapshot;
           void emit("snapshot", current);

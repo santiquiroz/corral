@@ -1,5 +1,16 @@
 import { expect, test } from "@playwright/test";
 
+test("Modelos permite liberar un modelo cargado sin manifiesto", async ({ page }) => {
+  await page.goto("/?scenario=orphan-loaded");
+  await page.getByRole("tab", { name: "Modelos" }).click();
+  const orphan = page.getByRole("row", { name: /qwen3\.5-mem:latest/ });
+  await expect(orphan.getByText("sin manifiesto")).toBeVisible();
+  await expect(orphan.getByText("En GPU", { exact: true })).toBeVisible();
+  await expect(orphan.getByRole("button", { name: "Liberar VRAM" })).toBeVisible();
+  await expect(orphan.getByRole("button", { name: "Borrar" })).toHaveCount(0);
+  await expect(page.getByRole("row", { name: /llamacpp:/ }).getByText("En GPU", { exact: true })).toHaveCount(0);
+});
+
 test("muestra la alerta de desborde y la GPU AMD", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("alert")).toContainText("qwen3.5-mem:latest está desbordando 729 MB");
