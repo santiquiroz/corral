@@ -1,7 +1,7 @@
 import type { Adapter, Runner } from "../lib/types";
 import { formatMb } from "../lib/format";
 
-export default function RunnersTable({ runners, adapters }: { runners: Runner[]; adapters: Adapter[] }) {
+export default function RunnersTable({ runners, adapters, onUnload, busy = false }: { runners: Runner[]; adapters: Adapter[]; onUnload: (model: string) => void; busy?: boolean }) {
   if (runners.length === 0) return <p className="muted">No hay modelos en la GPU.</p>;
   const gpuNames = (runner: Runner) => runner.gpus
     .filter((g) => (g.dedicated_mb ?? 0) > 0)
@@ -10,7 +10,7 @@ export default function RunnersTable({ runners, adapters }: { runners: Runner[];
   return (
     <table className="runners">
       <thead>
-        <tr><th>Modelo</th><th>GPU</th><th>VRAM</th><th>Compartida</th><th>CPU</th><th>RAM</th></tr>
+        <tr><th>Modelo</th><th>GPU</th><th>VRAM</th><th>Compartida</th><th>CPU</th><th>RAM</th><th>Acciones</th></tr>
       </thead>
       <tbody>
         {runners.map((r) => (
@@ -21,6 +21,7 @@ export default function RunnersTable({ runners, adapters }: { runners: Runner[];
             <td className="mono">{formatMb(r.shared_mb)}</td>
             <td className="mono">{r.cpu_pct.toFixed(1)} %</td>
             <td className="mono">{formatMb(r.ram_mb)}</td>
+            <td>{r.model && <button className="btn-sm" disabled={busy} onClick={() => onUnload(r.model!)}>Liberar VRAM</button>}</td>
           </tr>
         ))}
       </tbody>

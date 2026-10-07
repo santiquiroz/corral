@@ -4,7 +4,7 @@ import SettingsTab from "./components/SettingsTab";
 import StatusPill from "./components/StatusPill";
 import StatusTab from "./components/StatusTab";
 import { useSnapshot } from "./hooks/useSnapshot";
-import { onNotice, pauseOllama, resumeOllama, takeNotices } from "./lib/api";
+import { onNotice, pauseOllama, resumeOllama, takeNotices, unloadModel } from "./lib/api";
 
 type Tab = "estado" | "modelos" | "ajustes";
 const TABS: { id: Tab; label: string }[] = [
@@ -12,6 +12,12 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "modelos", label: "Modelos" },
   { id: "ajustes", label: "Ajustes" },
 ];
+
+async function unloadRunnerModels(model: string) {
+  const results = await Promise.allSettled(model.split(" / ").map((name) => unloadModel(name)));
+  const errors = results.filter((result) => result.status === "rejected");
+  if (errors.length) throw new Error(errors.map((result) => String(result.reason)).join("; "));
+}
 
 export default function App() {
   const snapshot = useSnapshot();
@@ -65,7 +71,7 @@ export default function App() {
         ))}
       </nav>
       <main>
-        {tab === "estado" && (snapshot ? <StatusTab snapshot={snapshot} onPause={() => run(pauseOllama)} busy={busy} /> : <p className="muted">Esperando la primera lectura…</p>)}
+        {tab === "estado" && (snapshot ? <StatusTab snapshot={snapshot} onPause={() => run(pauseOllama)} onUnload={(model) => run(() => unloadRunnerModels(model))} busy={busy} /> : <p className="muted">Esperando la primera lectura…</p>)}
         {tab === "modelos" && <ModelsTab snapshot={snapshot} />}
         {tab === "ajustes" && <SettingsTab />}
       </main>
