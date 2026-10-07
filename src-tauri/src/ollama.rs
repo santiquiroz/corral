@@ -111,7 +111,7 @@ pub struct OllamaClient {
 
 impl OllamaClient {
     pub fn new(base: &str) -> Self {
-        Self { base: base.trim_end_matches('/').to_string(), http: reqwest::Client::new() }
+        Self { base: base.trim_end_matches('/').to_string(), http: reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().expect("cliente HTTP de Ollama") }
     }
 
     pub async fn version(&self) -> Result<String, OllamaError> {

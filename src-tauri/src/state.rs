@@ -30,7 +30,7 @@ impl AppState {
             config_path,
             client: tokio::sync::RwLock::new(OllamaClient::new(&config.ollama_url)),
             config: tokio::sync::RwLock::new(config),
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).build().expect("cliente HTTP de hooks"),
             gpu: default_probe(),
             procs: Box::new(SysinfoSource::new()),
             launcher: Box::new(OllamaLauncher),

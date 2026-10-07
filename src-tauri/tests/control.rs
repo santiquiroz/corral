@@ -153,3 +153,39 @@ async fn hooks_skip_disabled_and_report_unreachable() {
     assert_eq!(results[0].name, "caido");
     assert!(!results[0].ok);
 }
+
+#[tokio::test]
+async fn hooks_report_redirects_without_calling_the_target() {
+    let called = Arc::new(AtomicBool::new(false));
+    let target = called.clone();
+    let router = Router::new()
+        .route("/hook", post(|| async { (StatusCode::FOUND, [(axum::http::header::LOCATION, "/target")]) }))
+        .route("/target", axum::routing::any(move || {
+            let target = target.clone();
+            async move { target.store(true, Ordering::SeqCst); StatusCode::OK }
+        }));
+    let base = common::spawn(router).await;
+    let state = corral_lib::state::AppState::new(PathBuf::new(), corral_lib::config::Config::default());
+    let hook = Hook { name: "redirect".into(), url: format!("{base}/hook"), body: "{}".into(), enabled: true };
+    let results = run_hooks(&state.http, &[hook]).await;
+    assert_eq!(results.len(), 1);
+    assert!(!results[0].ok);
+    assert_eq!(results[0].detail, "HTTP 302");
+    assert!(!called.load(Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn ollama_reports_redirects_without_calling_the_target() {
+    let called = Arc::new(AtomicBool::new(false));
+    let target = called.clone();
+    let router = Router::new()
+        .route("/api/version", get(|| async { (StatusCode::FOUND, [(axum::http::header::LOCATION, "/target")]) }))
+        .route("/target", get(move || {
+            let target = target.clone();
+            async move { target.store(true, Ordering::SeqCst); Json(json!({"version": "redirected"})) }
+        }));
+    let base = common::spawn(router).await;
+    let result = OllamaClient::new(&base).version().await;
+    assert!(matches!(result, Err(corral_lib::ollama::OllamaError::Http { status: 302, .. })));
+    assert!(!called.load(Ordering::SeqCst));
+}
