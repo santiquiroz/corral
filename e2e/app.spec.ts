@@ -1,5 +1,21 @@
 import { expect, test } from "@playwright/test";
 
+test("aplicar una GPU requiere confirmar el reinicio y guarda la selección", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Ajustes" }).click();
+  await expect(page.getByText(/AMD Radeon RX 7800 XT · ROCm · discreta/)).toBeVisible();
+  await page.getByLabel("Solo una GPU", { exact: true }).check();
+  await page.getByLabel("GPU seleccionada").selectOption("ROCm:0");
+  await page.getByLabel("Incluir GPU integrada").check();
+  await page.getByRole("button", { name: "Aplicar y reiniciar Ollama", exact: true }).click();
+  await expect(page.getByText("Ollama se reiniciará; claude-mem conserva su cola")).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { __corralCalls: { cmd: string }[] }).__corralCalls.filter((call) => call.cmd === "apply_gpu_profile"))).toHaveLength(0);
+  await page.getByRole("button", { name: "Confirmar y reiniciar Ollama" }).click();
+  await expect(page.getByText("Perfil GPU aplicado.")).toBeVisible();
+  const calls = await page.evaluate(() => (window as unknown as { __corralCalls: { cmd: string; args: unknown }[] }).__corralCalls);
+  expect(calls.find((call) => call.cmd === "apply_gpu_profile")?.args).toEqual({ profile: { kind: "single", library: "ROCm", filter_id: "0" }, igpuEnabled: true });
+});
+
 test("cargar un modelo usa la duración guardada y actualiza su estado", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("tab", { name: "Ajustes" }).click();

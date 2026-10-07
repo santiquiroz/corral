@@ -21,7 +21,12 @@ export interface InstalledModel {
 export interface PullProgress { name: string; status: string; completed: number | null; total: number | null }
 export interface PullDone { name: string; error: string | null }
 export interface Hook { name: string; url: string; body: string; enabled: boolean }
+export type GpuProfile = { kind: "auto" } | { kind: "spread" } | { kind: "single"; library: string; filter_id: string };
+export interface OllamaGpu {
+  id: string; filter_id: string; library: string; description: string; kind: string; total_mb: number | null; dropped: boolean;
+}
 export interface Config {
   ollama_url: string; ollama_install_dir: string; poll_panel_secs: number; poll_tray_secs: number;
   spill_floor_mb: number; resume_timeout_secs: number; load_keep_alive: string; hooks: Hook[];
+  gpu_profile: GpuProfile; igpu_enabled: boolean;
 }

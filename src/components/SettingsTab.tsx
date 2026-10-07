@@ -2,6 +2,7 @@ import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { useEffect, useState } from "react";
 import { getConfig, saveConfig } from "../lib/api";
 import type { Config } from "../lib/types";
+import GpuSettings from "./GpuSettings";
 
 type NumberKey = "poll_panel_secs" | "poll_tray_secs" | "spill_floor_mb" | "resume_timeout_secs";
 const NUMBER_FIELDS: { key: NumberKey; label: string }[] = [
@@ -15,6 +16,8 @@ export default function SettingsTab() {
   const [config, setConfig] = useState<Config | null>(null);
   const [autostart, setAutostart] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [gpuBusy, setGpuBusy] = useState(false);
 
   useEffect(() => {
     getConfig().then(setConfig).catch((e) => setMessage(String(e)));
@@ -34,7 +37,17 @@ export default function SettingsTab() {
       setMessage(String(e));
     }
   };
-  const save = () => saveConfig(config).then(() => setMessage("Guardado.")).catch((e) => setMessage(String(e)));
+  async function save() {
+    setSaveBusy(true);
+    try {
+      await saveConfig(config!);
+      setMessage("Guardado.");
+    } catch (error) {
+      setMessage(String(error));
+    } finally {
+      setSaveBusy(false);
+    }
+  }
 
   return (
     <div className="tab settings">
@@ -54,6 +67,7 @@ export default function SettingsTab() {
           <option value="-1">Siempre</option>
         </select>
       </label>
+      <GpuSettings profile={config.gpu_profile} igpuEnabled={config.igpu_enabled} disabled={saveBusy} onBusy={setGpuBusy} onApplied={(gpu_profile, igpu_enabled) => setConfig((current) => current ? { ...current, gpu_profile, igpu_enabled } : current)} />
       <h2>Avisos al reanudar</h2>
       {config.hooks.map((h, i) => (
         <label className="row" key={h.name}>
@@ -67,7 +81,7 @@ export default function SettingsTab() {
         Iniciar con Windows (oculto en la bandeja)
       </label>
       <div className="row">
-        <button className="primary" onClick={save}>Guardar</button>
+        <button className="primary" disabled={saveBusy || gpuBusy} onClick={save}>{saveBusy ? "Guardando…" : "Guardar"}</button>
         {message && <span role="status">{message}</span>}
       </div>
     </div>

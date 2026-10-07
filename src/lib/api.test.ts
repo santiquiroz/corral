@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import { loadModel } from "./api";
+import { applyGpuProfile, listOllamaGpus, loadModel } from "./api";
 
 const invoke = vi.hoisted(() => vi.fn(() => Promise.resolve()));
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
@@ -7,4 +7,15 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 test("cargar invoca el comando con el nombre exacto", async () => {
   await loadModel("hf.co/modelo:Q4_K_M");
   expect(invoke).toHaveBeenCalledWith("load_model", { name: "hf.co/modelo:Q4_K_M" });
+});
+
+test("consulta las GPUs detectadas por Ollama", async () => {
+  await listOllamaGpus();
+  expect(invoke).toHaveBeenCalledWith("list_ollama_gpus");
+});
+
+test("aplica el perfil GPU con argumentos del comando", async () => {
+  const profile = { kind: "single" as const, library: "ROCm", filter_id: "0" };
+  await applyGpuProfile(profile, true);
+  expect(invoke).toHaveBeenCalledWith("apply_gpu_profile", { profile, igpuEnabled: true });
 });

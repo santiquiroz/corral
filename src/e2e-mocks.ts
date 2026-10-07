@@ -1,6 +1,6 @@
 import { emit } from "@tauri-apps/api/event";
 import { mockIPC } from "@tauri-apps/api/mocks";
-import type { Snapshot } from "./lib/types";
+import type { Config, GpuProfile, Snapshot } from "./lib/types";
 import { pausedSnapshot, spillingSnapshot } from "./test/fixtures";
 
 type Calls = { cmd: string; args: unknown }[];
@@ -22,7 +22,7 @@ export function installE2eMocks() {
   const installedModels = new URLSearchParams(window.location.search).get("scenario") === "orphan-loaded"
     ? models.filter((model) => model.name !== "qwen3.5-mem:latest")
     : models;
-  let config = { ollama_url: "http://127.0.0.1:11434", ollama_install_dir: "C:\\Ollama", poll_panel_secs: 2, poll_tray_secs: 10, spill_floor_mb: 64, resume_timeout_secs: 30, load_keep_alive: "30m", hooks: [] };
+  let config: Config = { ollama_url: "http://127.0.0.1:11434", ollama_install_dir: "C:\\Ollama", poll_panel_secs: 2, poll_tray_secs: 10, spill_floor_mb: 64, resume_timeout_secs: 30, load_keep_alive: "30m", gpu_profile: { kind: "auto" }, igpu_enabled: false, hooks: [] };
 
   async function loadMockModel(name: string) {
     await new Promise((resolve) => setTimeout(resolve, 350));
@@ -47,6 +47,15 @@ export function installE2eMocks() {
           return { unloaded: ["qwen3.5-mem:latest"], killed: [1, 2, 3] };
         case "delete_model": return null;
         case "get_config": return config;
+        case "list_ollama_gpus": return [
+          { id: "0", filter_id: "0", library: "ROCm", description: "AMD Radeon RX 7800 XT", kind: "discrete", total_mb: 16384, dropped: false },
+          { id: "1", filter_id: "1", library: "Vulkan", description: "AMD Radeon(TM) Graphics", kind: "integrated", total_mb: null, dropped: true },
+        ];
+        case "apply_gpu_profile": {
+          const { profile, igpuEnabled } = args as { profile: GpuProfile; igpuEnabled: boolean };
+          config = { ...config, gpu_profile: profile, igpu_enabled: igpuEnabled };
+          return null;
+        }
         case "save_config": config = (args as { config: typeof config }).config; return null;
         case "plugin:autostart|is_enabled": return false;
         default: return null;
