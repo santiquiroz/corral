@@ -17,7 +17,7 @@ const api = vi.hoisted(() => ({
 vi.mock("../lib/api", () => api);
 
 const installed = [
-  { name: "qwen3.5-mem:latest", digest: "41d7", size_mb: 6289, family: "qwen35", parameter_size: "9.7B", quantization: "Q4_K_M", context_length: 262144, modified_at: "2026-09-30" },
+  { name: "qwen3.5-mem:latest", digest: "41d7", size_mb: 6289, family: "qwen35", parameter_size: "9.7B", quantization: "Q4_K_M", context_length: 262144, modified_at: "2026-09-30T18:20:00Z" },
   { name: "hf.co/openbmb/MiniCPM5-2B-GGUF:Q4_K_M", digest: "e680", size_mb: 1526, family: "minicpm", parameter_size: "2.5B", quantization: "Q4_K_M", context_length: 131072, modified_at: "2026-10-05" },
 ];
 
@@ -32,6 +32,14 @@ test("lista los modelos y marca el cargado", async () => {
   expect(within(row).getByText("En GPU")).toBeInTheDocument();
   expect(within(row).getByText("6.1 GB")).toBeInTheDocument();
   expect(within(row).getByRole("button", { name: "Descargar de memoria" })).toBeInTheDocument();
+});
+
+test("muestra la fecha de modificación sin la hora", async () => {
+  render(<ModelsTab snapshot={runningSnapshot} />);
+  const row = await screen.findByRole("row", { name: /qwen3.5-mem:latest/ });
+  expect(screen.getByRole("columnheader", { name: "Modificado" })).toBeInTheDocument();
+  expect(within(row).getByRole("cell", { name: "2026-09-30" })).toBeInTheDocument();
+  expect(screen.queryByText("2026-09-30T18:20:00Z")).not.toBeInTheDocument();
 });
 
 test("borrar pide confirmación en dos pasos y envía el nombre exacto", async () => {

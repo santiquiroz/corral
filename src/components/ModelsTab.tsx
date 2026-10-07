@@ -15,6 +15,7 @@ function ModelRow({ model, loaded, onChanged, onError }: { model: InstalledModel
       <td className="mono">{formatMb(model.size_mb)}</td>
       <td>{model.parameter_size} · {model.quantization}</td>
       <td className="mono">{model.context_length ? `${Math.round(model.context_length / 1024)}k` : "—"}</td>
+      <td>{model.modified_at.slice(0, 10)}</td>
       <td>{loaded ? <span className="pill pill-running">En GPU</span> : null}</td>
       <td className="row">
         {loaded && <button onClick={() => act(() => unloadModel(model.name))}>Descargar de memoria</button>}
@@ -53,7 +54,7 @@ export default function ModelsTab({ snapshot }: { snapshot: Snapshot | null }) {
       {models && (
         <table>
           <thead>
-            <tr><th>Modelo</th><th>Tamaño</th><th>Parámetros</th><th>Contexto</th><th>Estado</th><th>Acciones</th></tr>
+            <tr><th>Modelo</th><th>Tamaño</th><th>Parámetros</th><th>Contexto</th><th>Modificado</th><th>Estado</th><th>Acciones</th></tr>
           </thead>
           <tbody>
             {models.map((m) => <ModelRow key={m.name} model={m} loaded={loadedNames.has(m.name)} onChanged={refresh} onError={setError} />)}
