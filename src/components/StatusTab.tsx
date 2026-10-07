@@ -11,7 +11,9 @@ export default function StatusTab({ snapshot, onPause, busy = false }: { snapsho
       <SpillAlert runners={runners} onPause={onPause} busy={busy} />
       <GpuBars adapters={snapshot.adapters} />
       <h2>Modelos en ejecución</h2>
-      <RunnersTable runners={runners} adapters={adapters} />
+      <div className="table-scroll">
+        <RunnersTable runners={runners} adapters={adapters} />
+      </div>
     </div>
   );
 }

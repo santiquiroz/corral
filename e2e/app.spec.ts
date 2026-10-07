@@ -16,9 +16,24 @@ test("pausar desde la alerta deja el panel en pausa", async ({ page }) => {
 test("borrar un modelo pasa por la confirmación", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("tab", { name: "Modelos" }).click();
-  const row = page.getByRole("row", { name: /qwen3.5-mem:latest/ });
+  const row = page.getByRole("row", { name: /MiniCPM5/ });
   await row.getByRole("button", { name: "Borrar" }).click();
   await row.getByRole("button", { name: "Confirmar borrado" }).click();
   const calls = await page.evaluate(() => (window as unknown as { __corralCalls: { cmd: string; args: { name?: string } }[] }).__corralCalls);
-  expect(calls.find((c) => c.cmd === "delete_model")?.args.name).toBe("qwen3.5-mem:latest");
+  expect(calls.find((c) => c.cmd === "delete_model")?.args.name).toBe("hf.co/openbmb/MiniCPM5-2B-GGUF:Q4_K_M");
+});
+
+
+test("Modelos contiene el desborde horizontal y mantiene Liberar VRAM en una línea", async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 720 });
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Modelos" }).click();
+  await expect(page.getByRole("row", { name: /MiniCPM5/ })).toBeVisible();
+  const pageFits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  expect(pageFits).toBe(true);
+  const button = page.getByRole("button", { name: "Liberar VRAM" }).first();
+  await expect(button).toBeVisible();
+  const bounds = await button.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.height).toBeLessThan(40);
 });
