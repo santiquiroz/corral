@@ -64,7 +64,7 @@ fn launch_command(install_dir: &Path) -> std::process::Command {
 
 pub async fn pause(client: &OllamaClient, procs: &dyn ProcessSource, install_dir: &Path) -> Result<PauseReport, ControlError> {
     let unloaded = unload_all(client).await;
-    let killed: Vec<u32> = kill_order(&procs.list(), install_dir).into_iter().filter(|pid| procs.kill(*pid)).collect();
+    let killed: Vec<u32> = kill_order(&procs.list(), install_dir).into_iter().filter(|target| procs.kill(target)).map(|target| target.pid).collect();
     wait_for_exit(procs, install_dir).await?;
     Ok(PauseReport { unloaded, killed })
 }
@@ -88,7 +88,7 @@ async fn wait_for_exit(procs: &dyn ProcessSource, install_dir: &Path) -> Result<
             return Ok(());
         }
         if tokio::time::Instant::now() >= deadline {
-            return Err(ControlError::Survivors(survivors));
+            return Err(ControlError::Survivors(survivors.into_iter().map(|p| p.pid).collect()));
         }
         tokio::time::sleep(Duration::from_millis(250)).await;
     }

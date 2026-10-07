@@ -20,16 +20,38 @@ impl ProcessSource for FakeProcs {
     fn list(&self) -> Vec<ProcInfo> {
         self.0.lock().unwrap().clone()
     }
-    fn kill(&self, pid: u32) -> bool {
+    fn kill(&self, target: &ProcInfo) -> bool {
         let mut procs = self.0.lock().unwrap();
         let before = procs.len();
-        procs.retain(|p| p.pid != pid);
+        procs.retain(|p| p.pid != target.pid || p.start_time != target.start_time || p.exe != target.exe);
         procs.len() < before
     }
 }
 
 fn proc_at(pid: u32, name: &str, exe: &str, args: &[&str]) -> ProcInfo {
-    ProcInfo { pid, name: name.into(), exe: Some(PathBuf::from(exe)), cmd: args.iter().map(|s| s.to_string()).collect(), cpu_pct: 0.0, ram_mb: 0 }
+    ProcInfo { pid, start_time: 100, name: name.into(), exe: Some(PathBuf::from(exe)), cmd: args.iter().map(|s| s.to_string()).collect(), cpu_pct: 0.0, ram_mb: 0 }
+}
+
+#[tokio::test]
+async fn pause_preserves_a_process_that_replaced_the_selected_pid() {
+    struct ReplacedPid(FakeProcs);
+    impl ProcessSource for ReplacedPid {
+        fn list(&self) -> Vec<ProcInfo> {
+            let selected = self.0.list();
+            let mut live = self.0.0.lock().unwrap();
+            live[0].start_time = 200;
+            live[0].exe = Some(PathBuf::from(r"C:\foreign\llama-server.exe"));
+            selected
+        }
+        fn kill(&self, target: &ProcInfo) -> bool { self.0.kill(target) }
+    }
+    let original = proc_at(3, "llama-server.exe", r"C:\Ollama\lib\llama-server.exe", &[]);
+    let procs = ReplacedPid(FakeProcs(Mutex::new(vec![original])));
+    let report = pause(&OllamaClient::new(&common::closed_port_url()), &procs, Path::new(DIR)).await.unwrap();
+    assert!(report.killed.is_empty());
+    let survivors = procs.0.list();
+    assert_eq!(survivors.len(), 1);
+    assert_eq!(survivors[0].start_time, 200);
 }
 
 fn ollama_tree() -> FakeProcs {

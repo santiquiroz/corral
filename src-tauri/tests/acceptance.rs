@@ -19,7 +19,7 @@ async fn pause_frees_vram_under_five_seconds_and_resume_wakes_claude_mem() {
     let procs = SysinfoSource::new();
     let probe = default_probe();
     let install_dir = default_install_dir();
-    let runner_pids: Vec<u32> = corral_lib::procs::kill_order(&corral_lib::procs::ProcessSource::list(&procs), &install_dir);
+    let runner_pids: Vec<u32> = corral_lib::procs::kill_order(&corral_lib::procs::ProcessSource::list(&procs), &install_dir).into_iter().map(|p| p.pid).collect();
     assert!(ollama_vram_mb(probe.as_ref(), &runner_pids) > 0, "debe haber un modelo cargado antes de la prueba");
 
     let started = Instant::now();

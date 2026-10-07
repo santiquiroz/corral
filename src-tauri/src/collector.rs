@@ -162,6 +162,7 @@ mod tests {
     fn runner_proc(pid: u32, hash: &str) -> ProcInfo {
         ProcInfo {
             pid,
+            start_time: 100,
             name: "llama-server.exe".into(),
             exe: Some(PathBuf::from(format!(r"{DIR}\lib\llama-server.exe"))),
             cmd: vec!["llama-server.exe".into(), "--model".into(), format!(r"C:\m\blobs\sha256-{hash}")],

@@ -5,6 +5,7 @@ use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProcInfo {
     pub pid: u32,
+    pub start_time: u64,
     pub name: String,
     pub exe: Option<PathBuf>,
     pub cmd: Vec<String>,
@@ -69,13 +70,13 @@ pub fn blob_hash(path: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-pub fn kill_order(procs: &[ProcInfo], install_dir: &Path) -> Vec<u32> {
-    let mut ranked: Vec<(u8, u32)> = procs
+pub fn kill_order(procs: &[ProcInfo], install_dir: &Path) -> Vec<ProcInfo> {
+    let mut ranked: Vec<(u8, ProcInfo)> = procs
         .iter()
-        .filter_map(|p| classify(p, install_dir).map(|role| (kill_rank(role), p.pid)))
+        .filter_map(|p| classify(p, install_dir).map(|role| (kill_rank(role), p.clone())))
         .collect();
-    ranked.sort();
-    ranked.into_iter().map(|(_, pid)| pid).collect()
+    ranked.sort_by_key(|(rank, process)| (*rank, process.pid));
+    ranked.into_iter().map(|(_, process)| process).collect()
 }
 
 // La app de bandeja de Ollama relanza el servidor si se mata primero el servidor
@@ -89,7 +90,7 @@ fn kill_rank(role: OllamaRole) -> u8 {
 
 pub trait ProcessSource: Send + Sync {
     fn list(&self) -> Vec<ProcInfo>;
-    fn kill(&self, pid: u32) -> bool;
+    fn kill(&self, target: &ProcInfo) -> bool;
 }
 
 pub struct SysinfoSource {
@@ -129,6 +130,7 @@ impl ProcessSource for SysinfoSource {
             .iter()
             .map(|(pid, p)| ProcInfo {
                 pid: pid.as_u32(),
+                start_time: p.start_time(),
                 name: p.name().to_string_lossy().into_owned(),
                 exe: p.exe().map(Path::to_path_buf),
                 cmd: p
@@ -142,9 +144,15 @@ impl ProcessSource for SysinfoSource {
             .collect()
     }
 
-    fn kill(&self, pid: u32) -> bool {
-        let system = self.system.lock().unwrap();
-        system.process(Pid::from_u32(pid)).is_some_and(|p| p.kill())
+    fn kill(&self, target: &ProcInfo) -> bool {
+        let mut system = self.system.lock().unwrap();
+        let pid = Pid::from_u32(target.pid);
+        system.refresh_processes(ProcessesToUpdate::Some(&[pid]), true);
+        let Some(process) = system.process(pid) else { return false };
+        if process.start_time() != target.start_time || process.exe() != target.exe.as_deref() {
+            return false;
+        }
+        process.kill()
     }
 }
 
@@ -157,6 +165,7 @@ mod tests {
     fn proc_at(pid: u32, name: &str, exe: &str, cmd: &[&str]) -> ProcInfo {
         ProcInfo {
             pid,
+            start_time: 100,
             name: name.into(),
             exe: Some(PathBuf::from(exe)),
             cmd: cmd.iter().map(|s| s.to_string()).collect(),
@@ -274,6 +283,18 @@ mod tests {
 
     #[test]
     fn kill_order_is_tray_then_server_then_runners_and_skips_foreign() {
-        assert_eq!(kill_order(&sample(), Path::new(DIR)), vec![10, 20, 30]);
+        let sample = sample();
+        assert_eq!(kill_order(&sample, Path::new(DIR)), vec![sample[2].clone(), sample[1].clone(), sample[0].clone()]);
+    }
+
+    #[test]
+    fn sysinfo_rejects_stale_start_time_and_changed_executable() {
+        let source = SysinfoSource::new();
+        let current = source.list().into_iter().find(|p| p.pid == std::process::id()).unwrap();
+        let stale = ProcInfo { start_time: current.start_time + 1, ..current.clone() };
+        assert!(!source.kill(&stale));
+        let changed = ProcInfo { exe: Some(PathBuf::from(r"C:\foreign\other.exe")), ..current };
+        assert!(!source.kill(&changed));
+        assert!(source.list().iter().any(|p| p.pid == std::process::id()));
     }
 }
