@@ -6,6 +6,7 @@ use std::time::Duration;
 
 const READ_TIMEOUT: Duration = Duration::from_secs(5);
 const ACTION_TIMEOUT: Duration = Duration::from_secs(30);
+const LOAD_TIMEOUT: Duration = Duration::from_secs(120);
 const MB: u64 = 1024 * 1024;
 
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -133,6 +134,12 @@ impl OllamaClient {
         let request = self.http.post(self.url("/api/show")).json(&json!({ "model": model })).timeout(READ_TIMEOUT);
         let show = decode::<ShowResponse>(self.send(request).await?).await?;
         Ok(parse_from_blob(&show.modelfile))
+    }
+
+    pub async fn load(&self, model: &str, keep_alive: &str) -> Result<(), OllamaError> {
+        let keep_alive = if keep_alive == "-1" { json!(-1) } else { json!(keep_alive) };
+        let request = self.http.post(self.url("/api/generate")).json(&json!({ "model": model, "keep_alive": keep_alive }));
+        self.send(request.timeout(LOAD_TIMEOUT)).await.map(|_| ())
     }
 
     pub async fn unload(&self, model: &str) -> Result<(), OllamaError> {

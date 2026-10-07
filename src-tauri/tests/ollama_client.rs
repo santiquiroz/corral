@@ -60,6 +60,43 @@ async fn sends_exact_namespaced_names_in_actions() {
 }
 
 #[tokio::test]
+async fn cargar_envia_nombre_exacto_sin_prompt_y_duracion_en_texto() {
+    let seen: Seen = Arc::default();
+    let router = Router::new().route("/api/generate", post(record)).with_state(seen.clone());
+    let client = OllamaClient::new(&common::spawn(router).await);
+    let model = "hf.co/openbmb/MiniCPM5-2B-GGUF:Q4_K_M";
+
+    client.load(model, "30m").await.unwrap();
+    client.load(model, "1h").await.unwrap();
+
+    assert_eq!(*seen.lock().unwrap(), vec![
+        json!({"model": model, "keep_alive": "30m"}),
+        json!({"model": model, "keep_alive": "1h"}),
+    ]);
+}
+
+#[tokio::test]
+async fn cargar_siempre_envia_menos_uno_como_numero() {
+    let seen: Seen = Arc::default();
+    let router = Router::new().route("/api/generate", post(record)).with_state(seen.clone());
+    let client = OllamaClient::new(&common::spawn(router).await);
+
+    client.load("qwen3.5-mem:latest", "-1").await.unwrap();
+
+    assert_eq!(*seen.lock().unwrap(), vec![json!({"model": "qwen3.5-mem:latest", "keep_alive": -1})]);
+}
+
+#[tokio::test]
+async fn cargar_propaga_error_http_y_servidor_inaccesible() {
+    let router = Router::new().route("/api/generate", post(|| async { (StatusCode::NOT_FOUND, "model not found") }));
+    let client = OllamaClient::new(&common::spawn(router).await);
+
+    assert_eq!(client.load("missing", "30m").await, Err(OllamaError::Http { status: 404, body: "model not found".into() }));
+    let down = OllamaClient::new(&common::closed_port_url());
+    assert!(matches!(down.load("qwen", "30m").await, Err(OllamaError::Unreachable(_))));
+}
+
+#[tokio::test]
 async fn http_errors_and_unreachable_are_distinct() {
     let router = Router::new().route("/api/delete", delete(|| async { (StatusCode::NOT_FOUND, "model not found") }));
     let client = OllamaClient::new(&common::spawn(router).await);
